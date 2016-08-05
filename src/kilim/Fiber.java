@@ -13,7 +13,7 @@ import java.lang.reflect.Field;
  * The actual capture of the closure is done in the Weaver-transformed code.
  */
 
-public final class Fiber {
+public class Fiber {
 
 //    public boolean debug = false;
     /**
@@ -379,4 +379,36 @@ public final class Fiber {
     void clearPausing() {
         isPausing = false;
     }
+
+    public Fiber() {
+        task = fakeTask;
+    }
+
+    public Exception ex;
+    
+    
+    public boolean run() throws kilim.NotPausable {
+        try {
+            begin();
+            execute(this);
+        }
+        catch (Exception        kex) { ex = kex; }
+        boolean ret = ex==null ? end() : true;
+        return ret;
+    }
+    public void execute() throws Pausable, Exception {
+        Task.errNotWoven();
+    }
+    public void execute(kilim.Fiber fiber) {} // fixme:dry - keeps netbeans run-single happy :(
+    
+    private static Fiber.MethodRef runnerInfo = new Fiber.MethodRef(Fiber.class.getName(),"run");
+    static final FakeTask fakeTask = new FakeTask();
+    private static class FakeTask extends Task {
+        Fiber.MethodRef getRunnerInfo() {
+            return runnerInfo;
+        }
+    }
+   
+    
+    
 }

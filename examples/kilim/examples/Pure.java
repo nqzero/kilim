@@ -1,8 +1,8 @@
 // copyright 2016 seth lytle
 package kilim.examples;
 
+import kilim.Fiber;
 import kilim.Pausable;
-import kilim.PureFiber;
 import kilim.Scheduler;
 import kilim.Task;
 
@@ -40,7 +40,7 @@ public class Pure {
             return perf();
         }
     }
-    public static class PureDemo extends PureFiber {
+    public static class PureDemo extends Fiber {
         int sum = 0;
         public void execute() throws Pausable {
             for (int ii=0; ii < 10; ii++) {
@@ -49,7 +49,7 @@ public class Pure {
             }
         }
     }
-    public static class PureMega extends PureFiber {
+    public static class PureMega extends Fiber {
         int sum = 0;
         public void execute() throws Pausable {
             for (int ii=0; ii < 10; ii++) {
