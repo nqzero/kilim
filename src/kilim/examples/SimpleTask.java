@@ -33,6 +33,7 @@ public class SimpleTask extends Task {
         mb.putnb("Hello ");
         mb.putnb("World\n");
         mb.putnb("done");
+        Scheduler.getDefaultScheduler().idledown();
     }
 
     /**
@@ -47,6 +48,5 @@ public class SimpleTask extends Task {
             System.out.print(s);
         }
         
-        Scheduler.getDefaultScheduler().idledown();
     }
 }

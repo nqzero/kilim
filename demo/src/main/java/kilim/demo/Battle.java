@@ -34,8 +34,8 @@ public class Battle {
         for (int ii=0; ii < num; ii++) (actors[ii] = new Actor()).start();
         actors[0].damage.putb(1);
         
-        for (int ii=0; ii < 5; ii++, sleep())
-            System.out.println(living.get());
+        for (int cnt, prev=num; (cnt=living.get()) > num/2 || cnt < prev; prev=cnt, sleep())
+            System.out.println(cnt);
 
     }
 
