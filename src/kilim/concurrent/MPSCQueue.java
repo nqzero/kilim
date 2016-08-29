@@ -224,6 +224,11 @@ public class MPSCQueue<E> extends MPSCQueueL3Pad<E> {
 		return e;
 	}
 
+        public boolean isEmpty() {
+            final E e = peek();
+            return e==null;
+        }
+        
 	public E element() {
 		final E e = peek();
 		if (null == e) {
@@ -253,6 +258,18 @@ public class MPSCQueue<E> extends MPSCQueueL3Pad<E> {
 			currentConsumerIndexAfter = getTail();
 		} while (currentConsumerIndexBefore != currentConsumerIndexAfter);
 		return (int) (currentProducerIndex - currentConsumerIndexBefore);
+	}
+        
+	public int size2() {
+		long c1;
+		long po;
+		long c2 = getHead();
+		do {
+			c1 = c2;
+			po = getHead();
+			c2 = getTail();
+		} while (c1 != c2);
+		return (int) (po - c1);
 	}
 
 	public enum BackOffStrategy {

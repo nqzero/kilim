@@ -23,19 +23,31 @@ public class TimerService {
         lock = new java.util.concurrent.locks.ReentrantLock();
     }
 
+    public void shutdown() {
+        timer.shutdown();
+    }
+    
     public void submit(Timer t) {
-        if (t.onQueue.compareAndSet(false,true))
-            if (!timerQueue.offer(t))
-                try {
-                    throw new Exception("Maximum pending timers limit:"
-                            +Integer.getInteger("kilim.maxpendingtimers",
-                                    100000)
-                            +" exceeded, set kilim.maxpendingtimers property");
-                } catch (Exception e) {
-                    // TODO Auto-generated catch block
-                    e.printStackTrace();
-                }
+        if (t.onQueue.compareAndSet(false, true)) {
+            if (!timerQueue.offer(t)) {
+                new Exception(
+                        "Maximum pending timers limit:"
+                        + Integer.getInteger("kilim.maxpendingtimers", 100000)
+                        + " exceeded, set kilim.maxpendingtimers property"
+                ).printStackTrace();
+            }
+        }
+    }
 
+    /**
+     * return true if empty at the moment that the lock is acquired
+     *  allowing false negatives if operations are ongoing
+     */
+    public boolean isEmptyLazy() {
+        if (lock.tryLock())
+            try { return timerHeap.isEmpty() && timerQueue.isEmpty(); }
+            finally { lock.unlock(); }
+        return false;
     }
 
     public void trigger(final ThreadPoolExecutor executor) {

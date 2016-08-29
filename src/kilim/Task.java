@@ -372,16 +372,12 @@ public abstract class Task implements Runnable, EventSubscriber, Fiber.Worker {
         // for
         // monitoring
         // later on.
-        Timer.timer.schedule(new TimerTask() {
-            public void run() {
-                sleepmb.putnb(0);
-            }
-        }, millis);
-        sleepmb.get(); // block until a message posted
+        
+        sleepmb.get(millis);
     }
 
     public static void shutdown() {
-        Timer.timer.cancel();
+//        Timer.timer.cancel();
     }
     
     /**

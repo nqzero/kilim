@@ -8,6 +8,7 @@ package kilim.examples;
 
 import kilim.Mailbox;
 import kilim.Pausable;
+import kilim.Scheduler;
 import kilim.Task;
 
 /**
@@ -46,8 +47,6 @@ public class SimpleTask extends Task {
             System.out.print(s);
         }
         
-        // This is not good form. Tasks shouldn't be exiting the system. 
-        // See SimpleTask2 for a better way to clean up.
-        System.exit(0);
+        Scheduler.getDefaultScheduler().idledown();
     }
 }

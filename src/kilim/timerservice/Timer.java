@@ -6,7 +6,7 @@ import kilim.concurrent.VolatileBoolean;
 
 public class Timer implements Comparable<Timer> {
     // located outside Task to allow lazy instantiation
-    public static final java.util.Timer timer = new java.util.Timer(true);
+    public static final java.util.Timer timer = null;// = new java.util.Timer(true);
 
     private volatile long  nextExecutionTime; 
     public VolatileBoolean onQueue = new VolatileBoolean(false);  //true if timer is already on timerqueue

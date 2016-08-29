@@ -113,15 +113,28 @@ public class Scheduler {
                 affinePool_.publish(index, t);
 	}
     
+        AtomicInteger count = new AtomicInteger();
 	public void scheduleTimer(Timer t){
-		timerService.submit(t);
+            if (affinePool_.idledown) synchronized (this) {
+                count.incrementAndGet(); }
+            else
+                count.incrementAndGet();
+            timerService.submit(t);
 	}
+        
+	public void idledown() {
+            
+            if (affinePool_ != null && affinePool_.idledown(timerService,100))
+                shutdown();
+	}
+        
 	public void shutdown() {
 		shutdown.set(true);
 		if (defaultScheduler == this) {
 			defaultScheduler = null;
 		}
 		if (affinePool_ != null) affinePool_.shutdown();
+                timerService.shutdown();
 	}
 
 	public boolean isShutdown() {
