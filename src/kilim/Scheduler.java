@@ -77,9 +77,8 @@ public class Scheduler {
 	public Scheduler(int numThreads, int queueSize, String name) {
 		name_ = name;
 		nameGenerator_.putIfAbsent(name_, new AtomicInteger());
-		 timerService = new TimerService();
-		affinePool_ = new AffineThreadPool(numThreads, queueSize, name,
-				timerService);
+		timerService = new TimerService();
+		affinePool_ = new AffineThreadPool(numThreads, queueSize, name, timerService);
 	}
 
 	public long getTaskCount() {
