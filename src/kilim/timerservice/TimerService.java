@@ -51,12 +51,29 @@ public class TimerService {
     }
 
     public void trigger(final ThreadPoolExecutor executor) {
+        int maxtry = 5;
+
+        int retry = 0;
+        while (!(timerQueue.isEmpty() && timerHeap.isEmpty())
+                && ++retry < maxtry
+                && lock.tryLock()) {
+            tryTrigger(executor);
+        }
+
+        if (retry==maxtry && executor.getQueue().size()==0)
+            executor.getQueue().add(new WatchdogTask());
+        
+    }
+    
+    
+    
+    public void tryTrigger(final ThreadPoolExecutor executor) {
 
         Timer[] buf = new Timer[100];
-        long max = -1;
-        Timer t = null;
-
-        if (lock.tryLock()) try {
+        
+        try {
+            long max = -1;
+            Timer t = null;
             while ((t = timerHeap.peek())!=null && t.getExecutionTime()==-1)
                 timerHeap.poll();
             t = null;
