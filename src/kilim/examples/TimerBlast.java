@@ -24,7 +24,7 @@ public class TimerBlast extends Task {
         }
         public void execute() throws Pausable {
             for (long ii=0, t1=0, t2=0; ii < 30; ii++, t1=t2) {
-                dive(10);
+                dive(30);
                 System.out.println("hello world");
             }
         }
@@ -32,20 +32,19 @@ public class TimerBlast extends Task {
     }
     
     public static void main(String[] args) throws Exception {
-        int num = 100;
+        int num = 1000;
         
-        for (int ii=0; ii < num; ii++) new TimerBlast().start();
+        for (int ii=0; ii < 10; ii++) new TimerBlast().start();
         Thread.sleep(200);
-
-        for (int ii=0; ii < num; ii++) new TimerBlast().start();
         new Tick().start();
+        Thread.sleep(190);
         for (int ii=0; ii < num; ii++) new TimerBlast().start();
         
         for (int ii=0; ii < 30; ii++) {
             System.out.println("...");
             Thread.sleep(200);
         }
-
+ 
         
         Scheduler.getDefaultScheduler().idledown();
         System.out.println(cnt.get());

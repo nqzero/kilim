@@ -29,7 +29,7 @@ public class Timer implements Comparable<Timer> {
 	public void setTimer(long timeoutMillis) {
 		nextExecutionTime = System.currentTimeMillis() + timeoutMillis;
 	}
-	
+
 	public void cancel(){
 		nextExecutionTime = -1;
 	}
