@@ -50,30 +50,36 @@ public class TimerService {
         return false;
     }
 
+    
+    long first = 0;
+    
     public void trigger(final ThreadPoolExecutor executor) {
         int maxtry = 5;
 
-        long delay = 0;
+        long clock = System.currentTimeMillis(), sched = 0;
         int retry = -1;
-        while ((retry < 0 || !timerQueue.isEmpty())
+        while ((retry < 0 || !timerQueue.isEmpty() || (sched > 0 && sched <= clock))
                 && ++retry < maxtry
-                && lock.tryLock())
-            try { delay = doTrigger(); } finally { lock.unlock(); }
-
+                && lock.tryLock()) {
+            try { 
+                sched = doTrigger(clock);
+            } finally { lock.unlock(); }
+            clock = System.currentTimeMillis();
+        }
 
         // todo: cycle the queues
         if (retry==maxtry
                 && Scheduler.getDefaultScheduler().getTaskCount()==0)
             executor.getQueue().add(new WatchdogTask());
-        else if (delay > 0)
-            timer.schedule(new Watcher(executor),delay,TimeUnit.MILLISECONDS);
+        else if (sched > 0)
+            timer.schedule(new Watcher(executor),sched-clock,TimeUnit.MILLISECONDS);
 
         
     }
     
     
     
-    private long doTrigger() {
+    private long doTrigger(long currentTime) {
 
         Timer[] buf = new Timer[100];
         
@@ -94,7 +100,6 @@ public class TimerService {
                     buf[i] = null;
                     continue;
                 }
-                long currentTime = System.currentTimeMillis();
                 if (executionTime<=currentTime)
                     buf[i].es.onEvent(null,Cell.timedOut);
                 else if (!buf[i].onHeap) {
@@ -115,18 +120,14 @@ public class TimerService {
                 continue; // No action required, poll queue
                 // again
             }
-            long currentTime = System.currentTimeMillis();
             if (executionTime<=currentTime) {
                 t.onHeap = false;
                 timerHeap.poll();
                 t.es.onEvent(null,Cell.timedOut);
-            } else {
-                max = executionTime-currentTime;
-                break;
-            }
+            } else
+                return executionTime;
         }
-
-        return max;
+        return 0L;
     }
     private static class Watcher implements Runnable {
         ThreadPoolExecutor executor;
