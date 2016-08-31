@@ -469,6 +469,9 @@ public abstract class Task implements Runnable, EventSubscriber, Fiber.Worker {
     protected void setTid(int tid) {
         this.tid = tid;
     }
+    public int getTid() {
+        return tid;
+    }
 
     /**
      * Called by WorkerThread, it is the wrapper that performs pre and post

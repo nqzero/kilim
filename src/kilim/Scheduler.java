@@ -40,6 +40,7 @@ public class Scheduler {
 	private static ConcurrentMap<String, AtomicInteger> nameGenerator_ = new ConcurrentHashMap<String, AtomicInteger>();
 
 	private String name_;
+        private int numThreads;
 	private AffineThreadPool affinePool_;
 	protected AtomicBoolean shutdown = new AtomicBoolean(false);
 
@@ -79,12 +80,15 @@ public class Scheduler {
 		nameGenerator_.putIfAbsent(name_, new AtomicInteger());
 		timerService = new TimerService();
 		affinePool_ = new AffineThreadPool(numThreads, queueSize, name, timerService);
+                this.numThreads = numThreads;
 	}
 
 	public long getTaskCount() {
 		return affinePool_.getTaskCount();
 	}
 
+        public int numThreads() { return numThreads; }
+        
 	protected String getName() {
 		return name_;
 	}
