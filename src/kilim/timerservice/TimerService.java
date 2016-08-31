@@ -53,97 +53,94 @@ public class TimerService {
     public void trigger(final ThreadPoolExecutor executor) {
         int maxtry = 5;
 
-        int retry = 0;
-        while (!(timerQueue.isEmpty() && timerHeap.isEmpty())
+        long delay = 0;
+        int retry = -1;
+        while ((retry < 0 || !timerQueue.isEmpty())
                 && ++retry < maxtry
-                && lock.tryLock()) {
-            tryTrigger(executor);
-        }
+                && lock.tryLock())
+            try { delay = doTrigger(); } finally { lock.unlock(); }
 
-        if (retry==maxtry && executor.getQueue().size()==0)
+
+        // todo: cycle the queues
+        if (retry==maxtry
+                && Scheduler.getDefaultScheduler().getTaskCount()==0)
             executor.getQueue().add(new WatchdogTask());
+        else if (delay > 0)
+            timer.schedule(new Watcher(executor),delay,TimeUnit.MILLISECONDS);
+
         
     }
     
     
     
-    public void tryTrigger(final ThreadPoolExecutor executor) {
+    private long doTrigger() {
 
         Timer[] buf = new Timer[100];
         
-        try {
-            long max = -1;
-            Timer t = null;
-            while ((t = timerHeap.peek())!=null && t.getExecutionTime()==-1)
-                timerHeap.poll();
-            t = null;
-            int i = 0;
-            timerQueue.fill(buf);
-            do {
-                for (i = 0; i<buf.length; i++) {
-                    if (buf[i]==null)
-                        break;
-                    buf[i].onQueue.set(false);
-                    long executionTime = buf[i].getExecutionTime();
-                    if (executionTime<0) {
-                        buf[i] = null;
-                        continue;
-                    }
-                    long currentTime = System.currentTimeMillis();
-                    if (executionTime<=currentTime)
-                        buf[i].es.onEvent(null,Cell.timedOut);
-                    else if (!buf[i].onHeap) {
-                        timerHeap.add(buf[i]);
-                        buf[i].onHeap = true;
-                    }
-                    else 
-                        timerHeap.reschedule(buf[i].index);
-                    buf[i] = null;
-                }
-            } while (i==100);
-            while (!timerHeap.isEmpty()) {
-                t = timerHeap.peek();
-                long executionTime = t.getExecutionTime();
+        long max = -1;
+        Timer t = null;
+        while ((t = timerHeap.peek())!=null && t.getExecutionTime()==-1)
+            timerHeap.poll();
+        t = null;
+        int i = 0;
+        timerQueue.fill(buf);
+        do {
+            for (i = 0; i<buf.length; i++) {
+                if (buf[i]==null)
+                    break;
+                buf[i].onQueue.set(false);
+                long executionTime = buf[i].getExecutionTime();
                 if (executionTime<0) {
-                    t.onHeap = false;
-                    timerHeap.poll();
-                    continue; // No action required, poll queue
-                    // again
+                    buf[i] = null;
+                    continue;
                 }
                 long currentTime = System.currentTimeMillis();
-                if (executionTime<=currentTime) {
-                    t.onHeap = false;
-                    timerHeap.poll();
-                    t.es.onEvent(null,Cell.timedOut);
-                } else {
-                    max = executionTime-currentTime;
-                    break;
+                if (executionTime<=currentTime)
+                    buf[i].es.onEvent(null,Cell.timedOut);
+                else if (!buf[i].onHeap) {
+                    timerHeap.add(buf[i]);
+                    buf[i].onHeap = true;
                 }
+                else 
+                    timerHeap.reschedule(buf[i].index);
+                buf[i] = null;
             }
-
-            if ((max>0)
-                    &&(Scheduler.getDefaultScheduler().getTaskCount()==0)
-                    &&(timerHeap.size()!=0||timerQueue.size()!=0)) {
-                Runnable tt = new Runnable() {
-                    @Override
-                    public void run() {
-                        if (executor.getQueue().size()==0)
-                            executor.getQueue().add(new WatchdogTask());
-                    }
-                };
-                timer.schedule(tt,max,TimeUnit.MILLISECONDS);
+        } while (i==100);
+        while (!timerHeap.isEmpty()) {
+            t = timerHeap.peek();
+            long executionTime = t.getExecutionTime();
+            if (executionTime<0) {
+                t.onHeap = false;
+                timerHeap.poll();
+                continue; // No action required, poll queue
+                // again
             }
-        } finally {
-            lock.unlock();
+            long currentTime = System.currentTimeMillis();
+            if (executionTime<=currentTime) {
+                t.onHeap = false;
+                timerHeap.poll();
+                t.es.onEvent(null,Cell.timedOut);
+            } else {
+                max = executionTime-currentTime;
+                break;
+            }
         }
-    }
 
-    private class WatchdogTask implements Runnable {
+        return max;
+    }
+    private static class Watcher implements Runnable {
+        ThreadPoolExecutor executor;
+        Watcher(ThreadPoolExecutor $executor) { executor = $executor; }
 
         @Override
         public void run() {
+            if (executor.getQueue().size()==0)
+                executor.getQueue().add(new WatchdogTask());
         }
-
+    }
+    private static class WatchdogTask implements Runnable {
+        @Override
+        public void run() {}
     }
 
 }
