@@ -2,8 +2,10 @@ package kilim.timerservice;
 
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
 
 import kilim.Cell;
@@ -51,31 +53,39 @@ public class TimerService {
     }
 
     
-    long first = 0;
+    volatile long first = 0;
     
     public void trigger(final ThreadPoolExecutor executor) {
         int maxtry = 5;
 
-        long clock = System.currentTimeMillis(), sched = 0;
+        long clock = System.currentTimeMillis(), sched = 0, prev = -1;
         int retry = -1;
         while ((retry < 0 || !timerQueue.isEmpty() || (sched > 0 && sched <= clock))
                 && ++retry < maxtry
                 && lock.tryLock()) {
+            prev = clock;
             try { 
                 sched = doTrigger(clock);
             } finally { lock.unlock(); }
             clock = System.currentTimeMillis();
         }
 
-        // todo: cycle the queues
-        if (retry==maxtry
-                && Scheduler.getDefaultScheduler().getTaskCount()==0)
-            executor.getQueue().add(new WatchdogTask());
-        else if (sched > 0)
-            timer.schedule(new Watcher(executor),sched-clock,TimeUnit.MILLISECONDS);
-
-        
+        // todo: cycle the queues and require all
+        if (retry==maxtry) {
+            if (Scheduler.getDefaultScheduler().getTaskCount()==0)
+                executor.getQueue().add(new WatchdogTask());
+        }
+        else if (sched > 0 & (first <= prev | sched < first)) {
+            // failing to set first is ok
+            // just means we could generate a duplicate timer
+            timer.schedule(new Watcher(executor),(first=sched)-clock,TimeUnit.MILLISECONDS);
+            int c2 = cnt.incrementAndGet();
+            if (c2==c3) { c3<<=1; System.out.println("sched: " + c2); }
+        }
     }
+
+    volatile int c3 = 8;
+    AtomicInteger cnt = new AtomicInteger();
     
     
     
