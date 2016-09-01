@@ -20,7 +20,7 @@ public class TimerService {
 
     public TimerService() {
         timerHeap = new TimerPriorityHeap();
-        timerQueue = new MPSCQueue<Timer>(Integer.getInteger("kilim.maxpendingtimers",100000));
+        timerQueue = new MPSCQueue<Timer>(Integer.getInteger("kilim.maxpendingtimers",200000));
         timer = Executors.newSingleThreadScheduledExecutor();
         lock = new java.util.concurrent.locks.ReentrantLock();
     }
@@ -70,17 +70,19 @@ public class TimerService {
             clock = System.currentTimeMillis();
         }
 
+//        if (Scheduler.getDefaultScheduler().isFullish())
+//            return;
+        
         // todo: cycle the queues and require all
         if (retry==maxtry) {
-            if (Scheduler.getDefaultScheduler().getTaskCount()==0)
-                executor.getQueue().add(new WatchdogTask());
+            Scheduler.getDefaultScheduler().launch(executor.getQueue(),new WatchdogTask());
         }
         else if (sched > 0 & (first <= prev | sched < first)) {
             // failing to set first is ok
             // just means we could generate a duplicate timer
             timer.schedule(new Watcher(executor),(first=sched)-clock,TimeUnit.MILLISECONDS);
-            int c2 = cnt.incrementAndGet();
-            if (c2==c3) { c3<<=1; System.out.println("sched: " + c2); }
+//            int c2 = cnt.incrementAndGet();
+//            if (c2==c3) { c3<<=1; System.out.println("sched: " + c2); }
         }
     }
 

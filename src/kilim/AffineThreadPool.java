@@ -60,8 +60,32 @@ public class AffineThreadPool {
 			queueStats_.add(new KilimStats(12, "num"));
 		}
 	}
+        private static class WatchdogTask implements Runnable {
+            @Override
+            public void run() {}
+        }
+        void wakeup() {
+            queues_.get(0).add(new WatchdogTask());
+        }
 
-	public long getTaskCount() {
+        public boolean launch(Runnable task) {
+            for (BlockingQueue<Runnable> queue : queues_)
+                if (queue.isEmpty()) return queue.add(task);
+            int index = getNextIndex();
+            return queues_.get(index).add(task);
+        }
+	public boolean isFullish() {
+		for (BlockingQueue<Runnable> queue : queues_)
+			if (queue.isEmpty()) return false;
+                return true;
+	}
+	public boolean isEmptyish() {
+		for (BlockingQueue<Runnable> queue : queues_)
+			if (queue.isEmpty()) return true;
+                return false;
+	}
+
+        public long getTaskCount() {
 		long totalRemainingCapacity = 0L;
 		for (BlockingQueue<Runnable> queue : queues_) {
 			totalRemainingCapacity += queue.size();

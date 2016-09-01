@@ -101,6 +101,8 @@ public class TimerBlast2 {
         tick.box.putb(0L);
     }
 
+// Scheduler.defaultScheduler.affinePool_.queues_.get(0).add(new kilim.timerservice.TimerService.WatchdogTask())
+    
     long prev = 0;
     void loop(long val) throws Exception {
         long start = System.currentTimeMillis();
@@ -124,12 +126,12 @@ public class TimerBlast2 {
     
     
     public static void main(String[] args) throws Exception {
-        int num = 4096;
+        int num = 4096 << 5;
 
         
         
 
-        for (int ii=0; ii < 6; ii++)
+        for (int ii=0; ii < 1; ii++)
             new TimerBlast2().setup(num << ii);
         
 //        Scheduler.getDefaultScheduler().idledown();

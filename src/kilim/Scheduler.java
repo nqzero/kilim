@@ -82,7 +82,20 @@ public class Scheduler {
 		affinePool_ = new AffineThreadPool(numThreads, queueSize, name, timerService);
                 this.numThreads = numThreads;
 	}
+        void wakeup() {
+            affinePool_.wakeup();
+        }
 
+        public boolean launch(BlockingQueue<Runnable> queue,Runnable task) {
+            if (queue.isEmpty()) return queue.add(task);
+            return affinePool_.launch(task);
+        }
+	public boolean isFullish() {
+		return affinePool_.isFullish();
+	}
+	public boolean isEmptyish() {
+		return affinePool_.isEmptyish();
+	}
 	public long getTaskCount() {
 		return affinePool_.getTaskCount();
 	}
