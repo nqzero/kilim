@@ -84,6 +84,9 @@ public abstract class Task implements Runnable, EventSubscriber, Fiber.Worker {
 
     // new timer service
     public kilim.timerservice.Timer       timer_new;
+    
+    // for debugging Task.resume race conditions
+    private static boolean debugRunning = false;
 
     public Task() {
         id = idSource.incrementAndGet();
@@ -182,8 +185,13 @@ public abstract class Task implements Runnable, EventSubscriber, Fiber.Worker {
         // it is worth returning to a pause state. The code at the top of stack
         // will be doing that anyway.
 
-        doSchedule = !done
-                && running.compareAndSet(/* expected */false, /* update */true);
+        if (!done)
+            if (running.compareAndSet(/* expected */false, /* update */true))
+                doSchedule = true;
+            else
+                if (debugRunning) System.out.println("Task.pause.running: " + this);
+                
+
 
         if (doSchedule) {
             if (preferredResumeThread == -1)
