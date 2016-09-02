@@ -138,9 +138,15 @@ public class Scheduler {
             timerService.submit(t);
 	}
         
+	public void waitIdle() {
+            if (affinePool_ != null)
+                affinePool_.waitIdle(timerService,100);
+	}
+	public boolean sum() {
+            return affinePool_==null ? true : affinePool_.sum(timerService);
+	}
 	public void idledown() {
-            
-            if (affinePool_ != null && affinePool_.idledown(timerService,100))
+            if (affinePool_ != null && affinePool_.waitIdle(timerService,100))
                 shutdown();
 	}
         

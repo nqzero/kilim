@@ -93,7 +93,7 @@ public class TimerBlast2 {
         for (int ii=0; ii < num; ii++) tocks[ii].start();
 
         Tick tick = new Tick(20);
-        tick.start();
+//        tick.start();
         
         for (int ii=10; ii >= 0; ii--)
             loop(ii==0 ? 1:0);
@@ -107,6 +107,7 @@ public class TimerBlast2 {
     void loop(long val) throws Exception {
         long start = System.currentTimeMillis();
         while (true) {
+            Scheduler.getDefaultScheduler().sum();
             Thread.sleep(10);
             int sum = 0;
             for (int ii=0; ii < nthreads; ii++) sum += infos[ii].count;
@@ -126,7 +127,7 @@ public class TimerBlast2 {
     
     
     public static void main(String[] args) throws Exception {
-        int num = 4096 << 5;
+        int num = 4096 << 6;
 
         
         
@@ -134,8 +135,8 @@ public class TimerBlast2 {
         for (int ii=0; ii < 1; ii++)
             new TimerBlast2().setup(num << ii);
         
-//        Scheduler.getDefaultScheduler().idledown();
-        System.exit(0);
+        Scheduler.getDefaultScheduler().idledown();
+//        System.exit(0);
     }
 
 }

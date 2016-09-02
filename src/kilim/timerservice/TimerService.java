@@ -37,8 +37,10 @@ public class TimerService {
                         + Integer.getInteger("kilim.maxpendingtimers", 100000)
                         + " exceeded, set kilim.maxpendingtimers property"
                 ).printStackTrace();
+                throw new AssertionError();
             }
         }
+        else System.out.println("onqueue");
     }
 
     /**
@@ -66,6 +68,8 @@ public class TimerService {
             prev = clock;
             try { 
                 sched = doTrigger(clock);
+                if (sched==0 && ! timerHeap.isEmpty())
+                    throw new RuntimeException();
             } finally { lock.unlock(); }
             clock = System.currentTimeMillis();
         }
@@ -75,7 +79,9 @@ public class TimerService {
         
         // todo: cycle the queues and require all
         if (retry==maxtry) {
-            Scheduler.getDefaultScheduler().launch(executor.getQueue(),new WatchdogTask());
+            timer.schedule(new Watcher(executor),10,TimeUnit.MILLISECONDS);
+//            Scheduler.getDefaultScheduler().launch(executor.getQueue(),new WatchdogTask());
+//            System.out.println("maxtry");
         }
         else if (sched > 0 & (first <= prev | sched < first)) {
             // failing to set first is ok
@@ -84,6 +90,9 @@ public class TimerService {
 //            int c2 = cnt.incrementAndGet();
 //            if (c2==c3) { c3<<=1; System.out.println("sched: " + c2); }
         }
+//        else if (! timer.isShutdown())
+        else if (sched > 0)
+            timer.schedule(new Watcher(executor),Math.max((first=sched)-clock,10),TimeUnit.MILLISECONDS);
     }
 
     volatile int c3 = 8;

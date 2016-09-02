@@ -140,7 +140,7 @@ public class AffineThreadPool {
         no tasks waiting to be run
         
         */
-	public boolean idledown(TimerService ts,int delay) {
+	public boolean waitIdle(TimerService ts,int delay) {
             while (! Thread.interrupted()) {
                 if (sum(ts))
                     return true;
@@ -149,8 +149,9 @@ public class AffineThreadPool {
             return false;
 	}
 
-        private boolean sum(TimerService ts) {
-            for (Future fut; (fut=futures.peek()) != null && fut.isDone();) futures.poll();
+        int cfut = 0;
+        public boolean sum(TimerService ts) {
+            for (Future fut; (fut=futures.peek()) != null && fut.isDone(); cfut++) futures.poll();
             return futures.isEmpty() && ts.isEmptyLazy();
         }
 	public boolean idledown2(TimerService ts,int delay) {
