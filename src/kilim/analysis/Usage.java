@@ -79,9 +79,10 @@ public class Usage {
      * corresponding usage), we evaluate "in" using use and def. in = use U (out \ def) where out =
      * U succ.in, for all successors
      */
-    public boolean evalLiveIn(ArrayList<Usage> succUsage) {
+    public boolean evalLiveIn(ArrayList<Usage> succUsage,ArrayList<Usage> handUsage) {
         BitSet out = new BitSet(nLocals);
         BitSet old_in = (BitSet) in.clone();
+        if (handUsage==null) handUsage = new ArrayList();
         if (succUsage.size() == 0) {
             in = use;
         } else {
@@ -92,9 +93,13 @@ public class Usage {
             }
             // calc out \ def == out & ~def == ~(out | def)
             BitSet def1 = (BitSet) def.clone();
+            for (Usage usage : handUsage)
+                def1.and(usage.def);
             def1.flip(0, nLocals);
             out.and(def1);
             out.or(use);
+            for (Usage usage : handUsage)
+                out.or(usage.use);
             in = out;
         }
         return !(in.equals(old_in));

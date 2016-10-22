@@ -191,6 +191,7 @@ public class BasicBlock implements Comparable<BasicBlock> {
      * and real successors.
      */
     ArrayList<Usage>      succUsage;
+    ArrayList<Usage>      handUsage;
 
     /**
      * The frame at the BB's entry point. It changes when propagating changes
@@ -1170,14 +1171,16 @@ public class BasicBlock implements Comparable<BasicBlock> {
         if (succUsage == null) {
             succUsage = new ArrayList<Usage>(successors.size()
                     + handlers.size());
+            handUsage = new ArrayList<Usage>(handlers.size());
             for (BasicBlock succ : successors) {
                 succUsage.add(succ.usage);
             }
             for (Handler h : handlers) {
                 succUsage.add(h.catchBB.usage);
+                handUsage.add(h.catchBB.usage);
             }
         }
-        return usage.evalLiveIn(succUsage);
+        return usage.evalLiveIn(succUsage,handUsage);
     }
 
     /**
