@@ -40,6 +40,7 @@ public class TestUsage extends TestCase {
         //   30:in    30:in
         // Expected usage.in :  28:in 29:in 30:not_in
         u.read(29); u.write(30);
+        for (int ii=0; ii < 31; ii++) u.setBornIn(ii);
         ufollow1.setLiveIn(28); ufollow1.setLiveIn(29); ufollow1.setLiveIn(30);
         ufollow2.setLiveIn(30);
         ArrayList<Usage> ua = new ArrayList<Usage>(2);
