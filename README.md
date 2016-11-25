@@ -138,11 +138,17 @@ a number of companies (or their employees) appear to have been using Kilim recen
 
 
 Kilim v2.0
-Copyright (c) 2006 Sriram Srinivasan, 2016 seth lytle
-(kilim _at_ malhar.net)
+* Copyright (c) 2006, 2014 Sriram Srinivasan (kilim _at_ malhar.net)
+* Copyright (c) 2016 nqzero
+* Copyright (c) 2014 Avinash Lakshman (hedviginc.com)
+* Copyright (c) 2013 Nilang Shah
+* Copyright (c) 2013 Jason Pell <jason@pellcorp.com>
+
 
 This software is released under an MIT-style license (please see the
-License file). 
+License file). Unless otherwise noted, all files in this distribution are
+offered under these terms
+
 
 
 

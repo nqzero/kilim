@@ -1,3 +1,5 @@
+// Copyright 2014 by hedviginc - offered under the terms of the MIT License
+
 package kilim;
 
 import java.util.ArrayList;
