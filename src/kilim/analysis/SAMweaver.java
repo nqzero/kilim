@@ -114,8 +114,9 @@ public class SAMweaver implements Constants {
     }
 
     String getShimDesc() {
-        return this.desc.replace("(", "(" + TypeDesc.getInterned(this.interfaceName))
-                .replace(")", Constants.D_FIBER_LAST_ARG);
+        String shim = this.desc.replace("(", "(" + TypeDesc.getInterned(this.interfaceName));
+        return shim.contains(Constants.D_FIBER_LAST_ARG) ?
+                shim : shim.replace(")", Constants.D_FIBER_LAST_ARG);
     }
 
     /**

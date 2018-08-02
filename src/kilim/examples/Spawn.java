@@ -15,7 +15,7 @@ public class  Spawn {
         Mailbox<String> mb = new Mailbox<String>();
         
         //Consumer
-        Task.spawn( () -> {
+        Task.spawn(fiber -> {
             while (true) {
                 String s = mb.get();  // mb captured from environment.
                 System.out.println(s);
@@ -24,7 +24,7 @@ public class  Spawn {
         // Producers
         for (int i = 0; i < 10; i++) {
             final int fi = i; // Need a 'final' i to pass to closure
-            Task.fork( () -> {
+            Task.fork(fiber -> {
                 mb.put("Hello from " + fi);  // mb and fi captured from environment
             });
         }

@@ -2,6 +2,7 @@ package kilim.test;
 
 import junit.framework.TestCase;
 import kilim.ExitMsg;
+import kilim.Fiber;
 import kilim.Mailbox;
 import kilim.Pausable;
 import kilim.Task;
@@ -24,12 +25,12 @@ public class TestLambda extends TestCase {
     
     public void testSpawn() throws Exception {
         Mailbox<Integer> mb = new Mailbox<Integer>();
-        Task t1 = Task.fork(() -> {
+        Task t1 = Task.fork(fiber -> {
             Task.sleep(100);
             Integer i = mb.get();
             Task.exit(i);
         });
-        Task t2 = Task.fork(() -> {
+        Task t2 = Task.fork(fiber -> {
             mb.put(100);
         });
         
@@ -90,7 +91,7 @@ public class TestLambda extends TestCase {
             int captured1 = this.a;
             int captured2 = this.b;
             
-            Lambda<String> lam = (String input) -> {
+            Lambda<String> lam = (String input,Fiber fiber) -> {
                 int c = 0;
                 Task.yield();
                 c += captured1;
@@ -105,23 +106,27 @@ public class TestLambda extends TestCase {
     }
     
     static interface Lambda<T> {
-        T process(String input) throws Pausable;
+        T process(String input,Fiber fiber) throws Pausable;
+        default T process(String input) throws Pausable { return null; };
     }
-    interface Foo { void run() throws Pausable; }
+    interface Foo {
+        void run(kilim.Fiber fiber) throws Pausable;
+        default void run() throws Pausable {}
+    }
     void foo(Foo foo) throws Pausable { foo.run(); }
 
-    void doLambda() throws Pausable {
+    void doLambda(kilim.Fiber fiber) throws Pausable {
         doLambda(fd);
     }
     void doLambda(Double resp) throws Pausable {
         try {
-            foo(() -> restoreArgument(resp));
+            foo(fiber -> restoreArgument(resp));
         }
         catch (Exception ex) {}
         verify(resp);
     }
     private static void runLambda(Task subtask) throws Exception {
-        Task task = new Task.Fork(() -> subtask.execute());
+        Task task = new Task.Fork(fiber -> subtask.execute());
         runTask(task);
     }
 
@@ -133,8 +138,8 @@ public class TestLambda extends TestCase {
     public void testYieldExceptions() throws Exception {
         for (int ii=0; ii < 8; ii++)
             runLambda(new kilim.test.ex.ExCatch(ii));
-        runTask(new Task.Fork(() -> doLambda(fd)));
-        runLambda(new Task.Fork(() -> doLambda(fd)));
+        runTask(new Task.Fork(fiber -> doLambda(fd)));
+        runLambda(new Task.Fork(fiber -> doLambda(fd)));
         runLambda(new Task.Fork(this::doLambda));
     }
 

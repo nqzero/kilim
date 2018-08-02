@@ -626,6 +626,7 @@ public abstract class Task<TT> implements Runnable, EventSubscriber, Fiber.Worke
         Pausable.Spawn<TT> body;
         public Spawn() {}
         public Spawn(Pausable.Spawn<TT> body) { this.body = body; }
+        public Spawn(Pausable.Spawn10<TT> body) { this.body = body; }
         public void execute() throws Pausable, Exception {
             TT val = body.execute();
             exit(val);
@@ -634,6 +635,7 @@ public abstract class Task<TT> implements Runnable, EventSubscriber, Fiber.Worke
     public static class Fork extends Task {
         Pausable.Fork body;
         public Fork(Pausable.Fork body) { this.body = body; }
+        public Fork(Pausable.Fork10 body) { this.body = body; }
         public void execute() throws Pausable, Exception {
             body.execute();
         }
@@ -664,6 +666,9 @@ public abstract class Task<TT> implements Runnable, EventSubscriber, Fiber.Worke
     public static Task fork(final Pausable.Fork body) {
         return new Fork(body).start();
     }
+    public static Task fork(final Pausable.Fork10 body) {
+        return new Fork(body).start();
+    }
     /**
      * Wraps the given object or lambda expression in a Task and starts that task.
      * Beware of inadvertent sharing when multiple lambdas are created in the same context 
@@ -672,6 +677,11 @@ public abstract class Task<TT> implements Runnable, EventSubscriber, Fiber.Worke
      * @return the spawned task. 
      */
     public static <TT> Spawn<TT> spawn(final Pausable.Spawn<TT> body) {
+        Spawn<TT> spawn = new Spawn(body);
+        spawn.start();
+        return spawn;
+    }
+    public static <TT> Spawn<TT> spawn(final Pausable.Spawn10<TT> body) {
         Spawn<TT> spawn = new Spawn(body);
         spawn.start();
         return spawn;

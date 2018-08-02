@@ -15,8 +15,34 @@ public class Pausable extends Exception {
     public interface Spawn<TT> {
         TT execute() throws Pausable, Exception;
     }
+    public interface Spawn10<TT> extends Spawn<TT> {
+        TT execute(Fiber fiber) throws Pausable, Exception;
+        default TT execute() throws Pausable, Exception { return null; }
+    }
     public interface Fork {
         void execute() throws Pausable, Exception;
+    }
+    /**
+     * java 10 rejects woven lambdas similar to Fork, ie one's without the fiber argument.
+     * this subclass is compatible with java 10.
+     * the fiber argument should not be accessed in the lambda body,
+     * and invoking the lambda should use the `execute()` method
+     */
+    public interface Fork10 extends Fork {
+        /**
+         * a functional interface for pausable code with a dummy fiber argument to support java 10.
+         * this method should never be invoked and the fiber argument should never be accessed in the lambda body
+         * @param dummy a dummy argument to enable weaving - don't access this argument
+         * @throws Pausable
+         * @throws Exception 
+         */
+        void execute(Fiber dummy) throws Pausable, Exception;
+        /**
+         * use this method to access the lambda - the weaver will delegate to the woven lambda
+         * @throws Pausable
+         * @throws Exception 
+         */
+        default void execute() throws Pausable, Exception {}
     }
     public interface Fork1<AA> {
         void execute(AA arg1) throws Pausable, Exception;

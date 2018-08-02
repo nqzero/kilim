@@ -185,8 +185,10 @@ public class ClassWeaver {
      * kilim.Task.yield and kilim.Task.sleep
      */
     boolean needsWeaving(MethodFlow mf) {
-        if (!mf.needsWeaving() || mf.desc.endsWith(Constants.D_FIBER_LAST_ARG)) 
+        if (!mf.needsWeaving()) 
             return false;
+        // if we're already fibered, then desc will be fiber*2, but it won't match so it's ok
+        // ie, we want to weave anyway
         String fdesc = mf.desc.replace(")", Constants.D_FIBER_LAST_ARG);
         for (MethodFlow omf: classFlow.getMethodFlows()) {
             if (omf == mf) continue;

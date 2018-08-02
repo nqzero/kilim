@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import kilim.Constants;
+import static kilim.Constants.D_FIBER;
 import kilim.mirrors.Detector;
 
 import org.objectweb.asm.AnnotationVisitor;
@@ -74,14 +75,23 @@ public class MethodWeaver {
     private ArrayList<CallWeaver> callWeavers = new ArrayList<CallWeaver>(5);
 
     private Detector detector;
+    private boolean fiberIncluded;
 
     MethodWeaver(ClassWeaver cw, Detector detector, MethodFlow mf, boolean isSAM) {
         this.detector = detector;
         this.classWeaver = cw;
         this.methodFlow = mf;
         isPausable = mf.isPausable();
-        fiberVar =  methodFlow.maxLocals;
-        maxVars = fiberVar + 1;
+        fiberIncluded = mf.desc.contains(D_FIBER);
+        if (fiberIncluded) {
+            // fixme - in case the fiber is not last, should really scan the desc for it's position
+            fiberVar =  getFiberArgVar();
+            maxVars = methodFlow.maxLocals;
+        }
+        else {
+            fiberVar =  methodFlow.maxLocals;
+            maxVars = fiberVar + 1;
+        }
         maxStack = methodFlow.maxStack + 1; // plus Fiber
         this.isSAM = isSAM;
         if (!mf.isAbstract()) {
@@ -98,7 +108,7 @@ public class MethodWeaver {
         int access = mf.access;
         if (mf.isPausable()) {
             access &= ~Opcodes.ACC_VARARGS;
-            if (!isSAM) {
+            if (!isSAM & !fiberIncluded) {
                 desc = desc.replace(")", D_FIBER_LAST_ARG);
                 if (sig != null)
                     sig = sig.replace(")", D_FIBER_LAST_ARG);
@@ -240,7 +250,9 @@ public class MethodWeaver {
         if (indy.bsm.getOwner().equals("java/lang/invoke/LambdaMetafactory")) {
             Handle lambdaBody = (Handle)bsmArgs[1];
             String desc = lambdaBody.getDesc();
-            if (detector.isPausable(lambdaBody.getOwner(), lambdaBody.getName(), desc)) {
+            boolean pausable = detector.isPausable(lambdaBody.getOwner(), lambdaBody.getName(), desc);
+            boolean fiber = desc.contains(D_FIBER_LAST_ARG);
+            if (pausable & !fiber) {
                 bsmArgs[0] = addFiberType((Type)bsmArgs[0]);
                 bsmArgs[1] = new Handle(lambdaBody.getTag(), 
                                         lambdaBody.getOwner(), 
@@ -429,13 +441,17 @@ public class MethodWeaver {
     }
 
     int getFiberArgVar() {
+        return getNumWordsInArg() - (fiberIncluded ? 1:0);
+    }
+
+    int getNumWordsInArg() {
         int lastVar = getNumWordsInSig();
         if (!isStatic()) {
             lastVar++;
         }
         return lastVar;
     }
-
+    
     /*
      * The number of words in the argument; doubles/longs occupy
      * two local vars.
@@ -550,6 +566,9 @@ public class MethodWeaver {
     }
     
     void makeNotWovenMethod(ClassVisitor cv, MethodFlow mf, boolean isSAM) {
+        boolean fiber = mf.desc.contains(Constants.D_FIBER_LAST_ARG);
+        if (fiber)
+            return;
         if (classWeaver.classFlow.isJava7() && classWeaver.isInterface()) {
              MethodVisitor mv = cv.visitMethod(mf.access, mf.name, mf.desc, 
                     mf.signature, ClassWeaver.toStringArray(mf.exceptions));

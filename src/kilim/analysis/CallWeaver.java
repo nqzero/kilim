@@ -316,7 +316,7 @@ public class CallWeaver {
         // bb, we'll have to make sure it has some dummy value of that
         // type going in just to keep the verifier happy. 
 
-        for (int i = methodWeaver.getFiberArgVar(); i < f.getMaxLocals(); ) {
+        for (int i = methodWeaver.getNumWordsInArg(); i < f.getMaxLocals(); ) {
             Value v = f.getLocal(i);
             if (v.getTypeDesc() != D_UNDEFINED) {
 //            if (u.isLiveIn(i)) {
@@ -424,14 +424,14 @@ public class CallWeaver {
             // java7 can't call java8, but java8 can call java7 - only check the callee
             if (cm.version() < 52)
                 return false;
+            String fdesc = mi.desc.replace(")", D_FIBER_LAST_ARG);
             for (MethodMirror m: cm.getDeclaredMethods()) {
-                if (m.getMethodDescriptor().indexOf(D_FIBER_LAST_ARG) == -1) {
-                    if ((m.getModifiers() & ACC_ABSTRACT) > 0) {
-                        count++;
-                        if (m.getName().equals(mi.name) && m.getMethodDescriptor().equals(mi.desc)) {
-                            match = true;
-                        }
-                    }
+                if (count < 2 & (m.getModifiers() & ACC_ABSTRACT) > 0) {
+                    count++;
+                    String desc = m.getMethodDescriptor();
+                    if (m.getName().equals(mi.name) & 
+                            (desc.equals(mi.desc) | desc.equals(fdesc)))
+                        match = true;
                 }
             }
         } catch (ClassMirrorNotFoundException ignore) {
