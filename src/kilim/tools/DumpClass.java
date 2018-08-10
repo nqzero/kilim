@@ -66,13 +66,13 @@ public class DumpClass extends ClassVisitor implements Opcodes {
     
 
     public DumpClass(InputStream is) throws IOException {
-        super(ASM6);
+        super(ASM7_EXPERIMENTAL);
         ClassReader cr = new ClassReader(is);
         cr.accept(this, /*flags*/ 0);
     }
 
     public DumpClass(String className) throws IOException {
-        super(ASM6);
+        super(ASM7_EXPERIMENTAL);
         ClassReader cr;
         if (className.endsWith(".class")) {
             FileInputStream fis = new FileInputStream(className);
@@ -161,7 +161,7 @@ public class DumpClass extends ClassVisitor implements Opcodes {
 
 class DummyAnnotationVisitor extends AnnotationVisitor {
     public DummyAnnotationVisitor() {
-        super(Opcodes.ASM6);
+        super(Opcodes.ASM7_EXPERIMENTAL);
         // TODO Auto-generated constructor stub
     }
     public void visit(String name, Object value) {
@@ -189,7 +189,7 @@ class DummyAnnotationVisitor extends AnnotationVisitor {
 class DumpMethodVisitor extends MethodVisitor implements Opcodes {
 
     public DumpMethodVisitor() {
-        super(Opcodes.ASM6);
+        super(Opcodes.ASM7_EXPERIMENTAL);
     }
 
     static String[] os = {
