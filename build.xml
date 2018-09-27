@@ -1,0 +1,214 @@
+<?xml version="1.0"?>
+<project name="kilim" default="all">
+  <!-- emacs config: (setq nxml-child-indent 2) -->
+
+  <condition property="fail-libs">
+      <resourcecount when="lt" count="1">
+          <fileset dir="." includes="libs/asm-*.jar"/>
+      </resourcecount>
+  </condition>
+
+
+  <target name="check-libs" if="fail-libs">
+      <echo>
+	  dependencies not found (./libs)
+	  
+	  the ant build requires that dependencies be downloaded to ./libs
+	  the simplest way to do this is to use 'mvn initialize'
+      </echo>
+      <fail message="run 'mvn initialize' to copy dependencies to ./libs" />
+  </target>
+  
+  <target name="init" depends="check-libs">
+    <mkdir dir="target/classes"/>
+    <mkdir dir="target/test-classes"/>
+    <path id="kilim.classpath">
+      <pathelement location="target/classes/" />
+      <fileset dir="./libs">
+	<include name="**/*.jar"/>
+      </fileset>
+      <pathelement path="${java.class.path}" />
+    </path>
+    <path id="kilim.testwovenclasspath">
+      <pathelement location="target/test-classes/" />
+      <pathelement location="target/classes/" />
+      <fileset dir="./libs">
+	<include name="**/*.jar"/>
+      </fileset>
+      <pathelement path="${java.class.path}" />
+    </path>
+  </target>
+  
+  <condition property="exclude8" value="kilim/examples/Userdata.java,kilim/examples/Spawn.java,kilim/test/TestLambda.java" else="">
+    <or>
+      <equals arg1="${ant.java.version}" arg2="1.6"/>
+      <equals arg1="${ant.java.version}" arg2="1.7"/>
+    </or>
+  </condition>
+
+
+
+  <target name="all" depends="clean,weave" />
+  <target name="test" depends="testnotwoven,testwoven" />
+  
+  <target name="compile" depends="init">
+    <mkdir dir="target"/>
+    <mkdir dir="target/generated-sources/plugin"/>
+    <javac includeantruntime="false" debug="on" destdir="target/classes" 
+           excludes="${exclude8}"
+           classpathref="kilim.classpath">
+        <src path="src"/>
+        <src path="target/generated-sources/plugin"/>
+    </javac>
+  </target>
+  
+  <pathconvert property="dotjfiles" pathsep=" ">
+    <path>
+      <fileset dir="." includes="**/*.j" />
+    </path>
+  </pathconvert>
+  
+  <target name="asm" depends="compile">
+    <java classname="kilim.tools.Asm" classpathref="kilim.classpath" fork="yes">
+      <arg line="-nf -d ./target/classes" />
+      <arg line="${dotjfiles}" />
+    </java>
+  </target>
+  
+  <target name="testcompile" depends="asm">
+    <javac includeantruntime="false" debug="on" srcdir="test" destdir="target/classes" 
+           excludes="${exclude8}"
+           classpathref="kilim.classpath"/>
+  </target>
+  
+
+  <target name="weave" depends="compile">
+    <java classname="kilim.tools.Weaver" fork ="yes">
+      <classpath refid="kilim.classpath"/>
+      <assertions>
+	<enable/>
+      </assertions>
+      <arg value="-x" />
+       <!-- Skip classes that match ExInvalid. These are negative tests 
+            for the weaver. Also skip tests for this pass-->
+      <arg value="ExInvalid|test" /> 
+      <arg value="-d" />
+      <arg value="./target/classes" />
+      <arg line="./target/classes" />
+    </java>
+  </target>
+  <target name="testweave" depends="testcompile">
+    <java classname="kilim.tools.Weaver" fork ="yes">
+      <classpath refid="kilim.classpath"/>
+      <assertions>
+	<enable/>
+      </assertions>
+      <arg value="-x" />
+       <!-- Weave tests separately into test-classes --> 
+      <arg value="ExInvalid" /> 
+      <arg value="-d" />
+      <arg value="./target/test-classes" />
+      <arg line="./target/classes" />
+    </java>
+
+  </target>
+    
+  <target name="clean">
+    <delete>
+      <fileset dir="." includes="target/kilim*.jar"/>
+    </delete>
+    <delete dir="./target/classes" />
+    <delete dir="./target/test-classes" />
+  </target>
+  <target name="cleaner">
+    <delete dir="./target" />
+    <delete dir="./libs" />
+  </target>
+  
+  
+  <!-- This runs those tests that do not depend on generated classes
+       present in test-classes. For those, see "testwoven"  -->
+  <target name="testnotwoven" depends="weave,testweave">
+    <java classname="junit.textui.TestRunner" fork="yes">
+      <classpath refid="kilim.classpath"/>
+      <assertions>
+        <enable/>
+      </assertions>
+      <arg value="kilim.test.AllNotWoven" />
+    </java>
+  </target>
+  
+  <!-- This runs those tests depend on generated classes in test-classes-->
+  <target name="testwoven" depends="weave,testweave">
+    <java classname="junit.textui.TestRunner" fork="yes">
+      <classpath refid="kilim.testwovenclasspath"/>
+      <assertions>
+        <enable/>
+      </assertions>
+      <arg value="kilim.test.AllWoven" />
+    </java>
+  </target>
+
+  <target name="testjit" depends="testcompile">
+    <java classname="kilim.tools.Kilim" fork="yes">
+      <classpath refid="kilim.classpath"/>
+      <assertions><enable/></assertions>
+      <arg line="junit.textui.TestRunner kilim.test.AllWoven" />
+    </java>
+  </target>
+
+
+  <target name="jar-prep">
+    <copy file="License" todir="target/classes/META-INF" />
+  </target>
+
+  <target name="jar-all" depends="jar-prep">
+    <jar jarfile="target/kilim-all.jar" basedir="target/classes">
+      <zipgroupfileset dir="libs" includes="*.jar">
+		<exclude name="junit.jar" />
+      </zipgroupfileset>
+      <exclude name="kilim/test/**" />
+      <exclude name="kilim/examples/**" />
+      <exclude name="kilim/bench/**" />
+      <manifest>
+		<attribute name="Main-Class" value="kilim.tools.Weaver"/>
+      </manifest>	
+    </jar>
+    <jar jarfile="target/kilim-runtime.jar" basedir="target/classes">
+      <exclude name="kilim/test/**" />
+      <exclude name="kilim/examples/**" />
+      <exclude name="kilim/bench/**" />
+      <exclude name="kilim/tools/**" />
+      <exclude name="kilim/analysis/**" />
+    </jar>
+    <jar jarfile="target/kilim-demo.jar" basedir="target/classes">
+      <exclude name="kilim/test/**" />
+      <exclude name="kilim/tools/**" />
+      <exclude name="kilim/analysis/**" />
+    </jar>
+  </target>
+
+  <target name="jar" depends="jar-prep">
+    <jar jarfile="target/kilim.jar" basedir="target/classes">
+      <include name="**/**" />
+      <exclude name="kilim/test/**" />
+      <exclude name="kilim/examples/**" />
+      <exclude name="kilim/bench/**" />
+      <manifest>
+          <attribute name="Main-Class" value="kilim.tools.Kilim"/>
+          <attribute name="Premain-Class" value="kilim.tools.Agent"/>
+          <attribute name="Built-By" value="db4j.org"/>
+      </manifest>	
+    </jar>
+  </target>
+
+  <target name="maven" depends="all,test,jar,doc" description="generate the maven jar"></target>
+  <target name="maven-test" depends="clean,testjit" description="generate the maven jar"></target>
+
+  <target name="doc" description="generate documentation">
+    <jar compress="true" destfile="target/sources.jar" basedir="src" />
+    <javadoc sourcepath="src" destdir="target/tmp.ant"/>
+    <jar compress="true" destfile="target/javadoc.jar" basedir="target/tmp.ant" />
+    <delete dir="target/tmp.ant" />
+  </target>
+</project>
