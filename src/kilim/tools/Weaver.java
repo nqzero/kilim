@@ -79,9 +79,6 @@ public class Weaver {
         ArrayList<String> names = parseArgs(args);
         doMain(names.toArray(new String [] {}),null);
         if (err > 0) System.exit(err);
-//    	String name = ".\\target\\classes\\kilim\\examples\\StandardService.class";
-//    	Weaver weaver = new Weaver(null);
-//    	weaver.weaveFile(name, new BufferedInputStream(new FileInputStream(name)));
     }
     private static String [] concat(String [] a,String [] b) {
         String [] c = new String[a.length + b.length];
