@@ -44,4 +44,24 @@ public class TestYieldExceptions extends TestCase {
     public void testPausableBlocksBeforeCatch() throws Exception {
         TestYield.runTask(new kilim.test.ex.ExCatch(4));
     }
+
+    public void testRestoreBeforeDefine() throws Exception {
+        TestYield.runTask(new kilim.test.ex.ExCatch(5));
+    }
+    public void testWhileCatch() throws Exception {
+        TestYield.runTask(new kilim.test.ex.ExCatch(6));
+    }
+    public void testRestoreArgument() throws Exception {
+        TestYield.runTask(new kilim.test.ex.ExCatch(7));
+    }
+    public void testCorrectException() throws Exception {
+        TestYield.runTask(new kilim.test.ex.ExCatch(8));
+    }
+
+    public void testPureCatch()  throws Exception {
+        TestYield.runPure(new kilim.test.ex.ExCatch.Pure());
+    }
+    public void testPausableInvokeCatch() throws Exception {
+        TestYield.runTask(new kilim.test.ex.ExCatch(9));
+    }
 }

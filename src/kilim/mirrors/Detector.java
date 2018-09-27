@@ -8,13 +8,12 @@ package kilim.mirrors;
 import static kilim.Constants.D_OBJECT;
 
 import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.Set;
 
-import kilim.Constants;
 import kilim.NotPausable;
 import kilim.Pausable;
 import kilim.analysis.AsmDetector;
+import kilim.mirrors.CachedClassMirrors.ClassMirror;
+import kilim.mirrors.CachedClassMirrors.MethodMirror;
 
 /**
  * Utility class to check if a method has been marked pausable
@@ -29,11 +28,9 @@ public class Detector {
     // Note that we don't have the kilim package itself in the following list.
     static final String[] STANDARD_DONT_CHECK_LIST = { "java.", "javax." };
 
-    public static final Detector DEFAULT = new Detector(new RuntimeClassMirrors());
+    public final CachedClassMirrors mirrors;
 
-    public final Mirrors mirrors;
-
-    public Detector(Mirrors mirrors) {
+    public Detector(CachedClassMirrors mirrors) {
         this.mirrors = mirrors;
 
         NOT_PAUSABLE = mirrors.mirror(NotPausable.class);
@@ -147,8 +144,6 @@ public class Detector {
         return null;
     }
 
-    public static String D_FIBER_ = Constants.D_FIBER + ")";
-
     @SuppressWarnings("unused")
     private static String statusToStr(int st) {
         switch (st) {
@@ -163,20 +158,6 @@ public class Detector {
         }
     }
 
-    static private final ThreadLocal<Detector> DETECTOR = new ThreadLocal<Detector>();
-
-    public static Detector getDetector() {
-        Detector d = DETECTOR.get();
-        if (d == null)
-            return Detector.DEFAULT;
-        return d;
-    }
-
-    public static Detector setDetector(Detector d) {
-        Detector res = DETECTOR.get();
-        DETECTOR.set(d);
-        return res;
-    }
 
     public String commonSuperType(String oa, String ob) throws ClassMirrorNotFoundException {
         String a = toClassName(oa);

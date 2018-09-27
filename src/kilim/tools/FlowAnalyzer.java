@@ -25,11 +25,11 @@ import java.util.zip.ZipEntry;
 import kilim.analysis.BasicBlock;
 import kilim.analysis.ClassFlow;
 import kilim.analysis.Frame;
+import kilim.analysis.KilimContext;
 import kilim.analysis.MethodFlow;
 import kilim.analysis.TypeDesc;
 import kilim.analysis.Usage;
 import kilim.analysis.Value;
-import kilim.mirrors.Detector;
 
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.MethodInsnNode;
@@ -39,6 +39,7 @@ import org.objectweb.asm.tree.MethodInsnNode;
  * @author ram
  */
 public class FlowAnalyzer {
+    
     public static void main(String[] args) throws Exception {
         if (args.length == 0) {
             System.err.println("Usage <class name | jar file name> [methodName]");
@@ -46,13 +47,13 @@ public class FlowAnalyzer {
         }
         String name = args[0];
         if (name.endsWith(".jar")) {
-            analyzeJar(name, Detector.DEFAULT);
+            analyzeJar(name);
         } else {
-            analyzeClass(name, Detector.DEFAULT);
+            analyzeClass(name);
         }
     }
     
-    private static void analyzeClass(String className, Detector detector) {
+    private static void analyzeClass(String className) {
         try {
             pn("-------------------------------------------------");
             pn("Class: " + className);
@@ -62,13 +63,13 @@ public class FlowAnalyzer {
                 FileInputStream fis = null;
                 try {
                     fis = new FileInputStream(className);
-                    cf = new ClassFlow(fis, detector);
+                    cf = new ClassFlow(KilimContext.DEFAULT,fis);
                 } finally {
                     if (fis != null) {fis.close();}
                 }
             }
             if (cf == null) {
-                cf = new ClassFlow(className, detector);
+                cf = new ClassFlow(KilimContext.DEFAULT,className);
             }
             ArrayList<MethodFlow> flows = cf.analyze(true);
             for (MethodFlow flow: flows) {
@@ -184,7 +185,7 @@ public class FlowAnalyzer {
         return ret;
     }
     
-    public static void analyzeJar(String jarFile, Detector detector) {
+    public static void analyzeJar(String jarFile) {
         try {
             Enumeration<JarEntry> e = new JarFile(jarFile).entries();
             while (e.hasMoreElements()) {
@@ -192,7 +193,7 @@ public class FlowAnalyzer {
                 String n = en.getName();
                 if (!n.endsWith(".class")) continue;
                 n = n.substring(0, n.length() - 6).replace('/','.');
-                analyzeClass(n, detector);
+                analyzeClass(n);
             }
         } catch (Exception e) {
             e.printStackTrace();

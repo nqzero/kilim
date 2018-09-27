@@ -29,6 +29,7 @@ import org.objectweb.asm.Attribute;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.FieldVisitor;
+import org.objectweb.asm.Handle;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
@@ -65,13 +66,13 @@ public class DumpClass extends ClassVisitor implements Opcodes {
     
 
     public DumpClass(InputStream is) throws IOException {
-        super(ASM4);
+        super(ASM7_EXPERIMENTAL);
         ClassReader cr = new ClassReader(is);
         cr.accept(this, /*flags*/ 0);
     }
 
     public DumpClass(String className) throws IOException {
-        super(ASM4);
+        super(ASM7_EXPERIMENTAL);
         ClassReader cr;
         if (className.endsWith(".class")) {
             FileInputStream fis = new FileInputStream(className);
@@ -155,12 +156,16 @@ public class DumpClass extends ClassVisitor implements Opcodes {
     public void visitOuterClass(String owner, String name, String desc) {
     }
 
+    // fixme - if jasmin supports nestmates, then these should output the correct syntax
+    public void visitNestMemberExperimental(String nestMember) {}
+    public void visitNestHostExperimental(String nestHost) {}
+
     public void visitSource(String source, String debug) {}
 }
 
 class DummyAnnotationVisitor extends AnnotationVisitor {
     public DummyAnnotationVisitor() {
-        super(Opcodes.ASM4);
+        super(Opcodes.ASM7_EXPERIMENTAL);
         // TODO Auto-generated constructor stub
     }
     public void visit(String name, Object value) {
@@ -188,7 +193,7 @@ class DummyAnnotationVisitor extends AnnotationVisitor {
 class DumpMethodVisitor extends MethodVisitor implements Opcodes {
 
     public DumpMethodVisitor() {
-        super(Opcodes.ASM4);
+        super(Opcodes.ASM7_EXPERIMENTAL);
     }
 
     static String[] os = {
@@ -334,13 +339,24 @@ class DumpMethodVisitor extends MethodVisitor implements Opcodes {
         dedent(4);
     }
 
-    public void visitMethodInsn(int opcode, String owner, String name, String desc) {
+    public void visitMethodInsn(int opcode, String owner, String name, String desc,boolean itf) {
         String str = os[opcode] + " " + owner + "/" + name + desc;
         if (opcode == INVOKEINTERFACE) {
             ppn(str + ", " + (TypeDesc.getNumArgumentTypes(desc)+1));
         } else {
             ppn(str);
         }
+    }
+    
+    public void visitInvokeDynamicInsn(String name, String desc, Handle bsm,
+            Object... bsmArgs) {
+        ppn("invokedynamic " + name + desc);
+        indent(4);
+        pn("; bootstrap = " + bsm.getOwner() + "." + bsm.getName() + bsm.getDesc());
+        for (int i = 0; i < bsmArgs.length; i++) {
+            pn("; arg[" + i + "] = " + bsmArgs[0]);
+        }
+        dedent(4);
     }
 
     public void visitMultiANewArrayInsn(String desc, int dims) {

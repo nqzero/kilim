@@ -5,7 +5,6 @@
  */
 
 package kilim.analysis;
-import static kilim.Constants.D_FIBER;
 import static kilim.Constants.STATE_CLASS;
 import static kilim.Constants.WOVEN_FIELD;
 import static org.objectweb.asm.Opcodes.ACC_FINAL;
@@ -18,10 +17,12 @@ import static org.objectweb.asm.Opcodes.V1_1;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 
+import kilim.Constants;
 import kilim.KilimException;
 import kilim.mirrors.Detector;
 
@@ -52,44 +53,25 @@ public class ClassWeaver {
     	stateClasses_.set(new HashMap<String, ClassInfo>() );
     }
     
-    private final ClassLoader classLoader;
+
+    public KilimContext context;
     
-    public ClassWeaver(byte[] data) {
-        this(data, Detector.DEFAULT, Thread.currentThread().getContextClassLoader());
+    
+    
+    
+    
+    public ClassWeaver(KilimContext context,InputStream is) throws IOException {
+        this.context = context;
+        classFlow = new ClassFlow(context,is);
     }
     
-    public ClassWeaver(byte[] data, Detector detector) {
-    	this(data, detector, Thread.currentThread().getContextClassLoader());
-    }
-    
-    public ClassWeaver(InputStream is, Detector detector) throws IOException {
-    	this(is, detector, Thread.currentThread().getContextClassLoader());
-    }
-    
-    public ClassWeaver(String className, Detector detector) throws IOException {
-        this(className, detector, Thread.currentThread().getContextClassLoader());
-    }
-    
-    public ClassWeaver(byte[] data, Detector detector, ClassLoader classLoader) {
-        classFlow = new ClassFlow(data, detector);
-        this.classLoader = classLoader;
-    }
-    
-    public ClassWeaver(InputStream is, Detector detector, ClassLoader classLoader) throws IOException {
-        classFlow = new ClassFlow(is, detector);
-        this.classLoader = classLoader;
-    }
-    
-    public ClassWeaver(String className, Detector detector, ClassLoader classLoader) throws IOException {
-        classFlow = new ClassFlow(className, detector);
-        this.classLoader = classLoader;
-    }
     
     public void weave() throws KilimException {
         classFlow.analyze(false);
         if (needsWeaving() && classFlow.isPausable()) {
             boolean computeFrames = (classFlow.version & 0x00FF) >= 50;
-            ClassWriter cw = new kilim.analysis.ClassWriter(computeFrames ? ClassWriter.COMPUTE_FRAMES : 0, classFlow.detector());
+            ClassWriter cw = new kilim.analysis.ClassWriter(
+                    computeFrames ? ClassWriter.COMPUTE_FRAMES : 0, context.detector);
             accept(cw);
             addClassInfo(new ClassInfo(classFlow.getClassName(), cw.toByteArray()));
         }
@@ -105,10 +87,15 @@ public class ClassWeaver {
         if (cf.sourceFile != null || cf.sourceDebug != null) {
             cv.visitSource(cf.sourceFile, cf.sourceDebug);
         }
+        if (cf.nestHostClassExperimental != null)
+            cv.visitNestHostExperimental(cf.nestHostClassExperimental);
         // visits outer class
         if (cf.outerClass != null) {
             cv.visitOuterClass(cf.outerClass, cf.outerMethod, cf.outerMethodDesc);
         }
+        if (cf.nestMembersExperimental != null)
+            for (String member : cf.nestMembersExperimental)
+                cv.visitNestMemberExperimental(member);
         // visits attributes and annotations
         int i, n;
         AnnotationNode an;
@@ -142,17 +129,40 @@ public class ClassWeaver {
          */
         cv.visitField(ACC_PUBLIC | ACC_STATIC | ACC_FINAL, WOVEN_FIELD, "Z", "Z", Boolean.TRUE);
         // visits methods
+        
+        MethodFlow sam = classFlow.getSAM(); 
         for (i = 0; i < cf.methods.size(); ++i) {
             MethodFlow m = (MethodFlow) cf.methods.get(i);
             if (needsWeaving(m)) {
-                MethodWeaver mw = new MethodWeaver(this, m);
+                // For pausable methods, we generate two function signatures, one the original
+                // and the other with a fiber as the last param. For a non-abstract method, the 
+                // fiber'd version gets the original's body, and the original version throws
+                // an error saying "Not Woven", in case it is called at run time. This latter part
+                // is done in makeNotWovenMethod below.
+                
+                // However, if it is a single abstract method (SAM) of a functional interface,
+                // then we invert the arrangement. We generate two method bodies as before,
+                // but the fiber'd version gets the "not woven" message. This preserves the 
+                // original method as the SAM. However, the weaver (see CallWeaver and SAMWeaver)
+                // arranges it such that the invokedynamic instruction bridges the fiber'd version
+                // of the method with the body of the lambda expression. 
+                
+                boolean isSAM = (sam == m);
+                MethodWeaver mw = new MethodWeaver(this, context.detector, m, isSAM);
                 mw.accept(cv);
-                mw.makeNotWovenMethod(cv, m);
+                if (m.isPausable())
+                    mw.makeNotWovenMethod(cv, m, isSAM);
             } else {
                 m.restoreNonInstructionNodes();
                 m.accept(cv);
             }
         }
+
+        // create shim methods (if any) to wrap SAM interface methods
+        for (SAMweaver sw: samWeavers) {
+            sw.accept(cv);
+        }
+        
         // visits end
         cv.visitEnd();
     }
@@ -179,11 +189,10 @@ public class ClassWeaver {
      * one, then this method doesn't need weaving. Examples are
      * kilim.Task.yield and kilim.Task.sleep
      */
-    static String FIBER_SUFFIX = D_FIBER + ')';
     boolean needsWeaving(MethodFlow mf) {
-        if (!mf.isPausable() || mf.desc.endsWith(FIBER_SUFFIX)) 
+        if (!mf.needsWeaving() || mf.desc.endsWith(Constants.D_FIBER_LAST_ARG)) 
             return false;
-        String fdesc = mf.desc.replace(")", FIBER_SUFFIX);
+        String fdesc = mf.desc.replace(")", Constants.D_FIBER_LAST_ARG);
         for (MethodFlow omf: classFlow.getMethodFlows()) {
             if (omf == mf) continue;
             if (mf.name.equals(omf.name) && fdesc.equals(omf.desc)) {
@@ -228,7 +237,7 @@ public class ClassWeaver {
         ClassInfo classInfo= null;
             classInfo= stateClasses_.get().get(className);
             if (classInfo == null) {
-                ClassWriter cw = new kilim.analysis.ClassWriter(ClassWriter.COMPUTE_FRAMES, classFlow.detector());
+                ClassWriter cw = new kilim.analysis.ClassWriter(ClassWriter.COMPUTE_FRAMES, context.detector);
                 cw.visit(V1_1, ACC_PUBLIC | ACC_FINAL, className, null, "kilim/State", null);
 
                 // Create default constructor
@@ -237,7 +246,7 @@ public class ClassWeaver {
                 // }
                 MethodVisitor mw = cw.visitMethod(ACC_PUBLIC, "<init>", "()V", null, null);
                 mw.visitVarInsn(ALOAD, 0);
-                mw.visitMethodInsn(INVOKESPECIAL, STATE_CLASS, "<init>", "()V");
+                mw.visitMethodInsn(INVOKESPECIAL, STATE_CLASS, "<init>", "()V", false);
                 mw.visitInsn(RETURN);
                 // this code uses a maximum of one stack element and one local variable
                 mw.visitMaxs(1, 1);
@@ -272,6 +281,26 @@ public class ClassWeaver {
     boolean isInterface() {
         return classFlow.isInterface();
     }
+    
+    ArrayList<SAMweaver> samWeavers = new ArrayList<SAMweaver>();
+    SAMweaver getSAMWeaver(String owner, String methodName, String desc, boolean itf) {
+        SAMweaver sw = new SAMweaver(context,owner, methodName, desc, itf);
+        // intern
+        for (SAMweaver s: samWeavers) {
+            if (s.equals(sw)) {
+                return s; 
+            }
+        }
+        samWeavers.add(sw);
+        sw.setIndex(samWeavers.size());
+        
+        return sw;
+    }
+
+    String getName() {
+        return classFlow.name;
+    }
+
 }
 
 

@@ -7,7 +7,6 @@
 package kilim;
 
 import java.util.LinkedList;
-import java.util.TimerTask;
 
 /**
  * This is a typed buffer that supports multiple producers and a single
@@ -36,8 +35,8 @@ public class Mailbox<T> implements PauseReason, EventPublisher {
     public static final int SPACE_AVAILABLE = 1;
     public static final int MSG_AVAILABLE = 2;
     public static final int TIMED_OUT = 3;
-    public static final Event spaceAvailble = new Event(MSG_AVAILABLE);
-    public static final Event messageAvailable = new Event(SPACE_AVAILABLE);
+    public static final Event spaceAvailble = new Event(SPACE_AVAILABLE);
+    public static final Event messageAvailable = new Event(MSG_AVAILABLE);
     public static final Event timedOut = new Event(TIMED_OUT);
     
     LinkedList<EventSubscriber> srcs = new LinkedList<EventSubscriber>();
@@ -184,25 +183,19 @@ public class Mailbox<T> implements PauseReason, EventPublisher {
     public T get(long timeoutMillis) throws Pausable {
         final Task t = Task.getCurrentTask();
         T msg = get(t);
-        long end = System.currentTimeMillis() + timeoutMillis;
+        long begin = System.currentTimeMillis();
+        long time = timeoutMillis;
         while (msg == null) {
-            TimerTask tt = new TimerTask() {
-                public void run() {
-                    Mailbox.this.removeMsgAvailableListener(t);
-                    t.onEvent(Mailbox.this, timedOut);
-                }
-            };
-            Task.timer.schedule(tt, timeoutMillis);
+            t.timer.setTimer(time);
+            t.scheduler.scheduleTimer(t.timer);
             Task.pause(this);
-            tt.cancel();
+            t.timer.cancel();
             removeMsgAvailableListener(t);
-            msg = get(t);
-            
-            timeoutMillis = end - System.currentTimeMillis();
-            if (timeoutMillis <= 0) {
-            	removeMsgAvailableListener(t);
+            time = timeoutMillis - (System.currentTimeMillis() - begin);
+            if (time <= 0) {
                 break;
             }
+            msg = get(t);
         }
         return msg;
     }
@@ -227,73 +220,6 @@ public class Mailbox<T> implements PauseReason, EventPublisher {
 		while (hasMessages(num, Task.getCurrentTask()) == false) {
 			Task.pause(this);
 		}
-	}
-
-
-	/**
-	 * Block caller (with timeout) until a message is available.
-	 * @return non-null message.
-	 * @throws Pausable
-	 */
-	public boolean untilHasMessage(long timeoutMillis) throws Pausable {
-		final Task t = Task.getCurrentTask();
-		boolean has_msg = hasMessage(t);
-		long end = System.currentTimeMillis() + timeoutMillis;
-		while (has_msg == false) {
-			TimerTask tt = new TimerTask() {
-				public void run() {
-                    Mailbox.this.removeMsgAvailableListener(t);
-	                t.onEvent(Mailbox.this, timedOut);
-				}
-			};
-			Task.timer.schedule(tt, timeoutMillis);
-			Task.pause(this);
-			tt.cancel();
-			has_msg = hasMessage(t);
-			timeoutMillis = end - System.currentTimeMillis();
-			if (timeoutMillis <= 0) {
-            	removeMsgAvailableListener(t);
-				break;
-			}
-		}
-		return has_msg;
-	}
-
-	/**
-	 * Block caller (with timeout) until <code>num</code> messages are available.
-	 * 
-	 * @param num
-	 * @param timeoutMillis
-	 * @return Message or <code>null</code> on timeout
-	 * @throws Pausable
-	 */
-	public boolean untilHasMessages(int num, long timeoutMillis)
-			throws Pausable {
-		final Task t = Task.getCurrentTask();
-		final long end = System.currentTimeMillis() + timeoutMillis;
-
-		boolean has_msg = hasMessages(num, t);
-		while (has_msg == false) {
-			TimerTask tt = new TimerTask() {
-				public void run() {
-                    Mailbox.this.removeMsgAvailableListener(t);
-	                t.onEvent(Mailbox.this, timedOut);
-				}
-			};
-			Task.timer.schedule(tt, timeoutMillis);
-			Task.pause(this);
-			if (!tt.cancel()) {
-            	removeMsgAvailableListener(t);
-			}
-
-			has_msg = hasMessages(num, t);
-			timeoutMillis = end - System.currentTimeMillis();
-			if (!has_msg && timeoutMillis <= 0) {
-            	removeMsgAvailableListener(t);
-				break;
-			}
-		}
-		return has_msg;
 	}
 
 	public boolean hasMessage(Task eo) {
@@ -457,19 +383,16 @@ public class Mailbox<T> implements PauseReason, EventPublisher {
     public boolean put(T msg, int timeoutMillis) throws Pausable {
         final Task t = Task.getCurrentTask();
         long begin = System.currentTimeMillis();
-        while (!put(msg, t)) {
-            TimerTask tt = new TimerTask() {
-                public void run() {
-                    Mailbox.this.removeSpaceAvailableListener(t);
-                    t.onEvent(Mailbox.this, timedOut);
-                }
-            };
-            Task.timer.schedule(tt, timeoutMillis);
+        long time = timeoutMillis;
+        while (!put(msg,t)) {
+            t.timer.setTimer(time);
+            t.scheduler.scheduleTimer(t.timer);
             Task.pause(this);
+            t.timer.cancel();
             removeSpaceAvailableListener(t);
-            if (System.currentTimeMillis() - begin >= timeoutMillis) {
+            time = timeoutMillis-(System.currentTimeMillis()-begin);
+            if (time<=0)
                 return false;
-            }
         }
         return true;
     }
@@ -480,41 +403,52 @@ public class Mailbox<T> implements PauseReason, EventPublisher {
 
     public class BlockingSubscriber implements EventSubscriber {
         public volatile boolean eventRcvd = false;
+        private long current = -1;
+        private long tom;
+        private long start = 0;
+
+        public BlockingSubscriber(long tom) {
+            this.tom = tom;
+            if (tom > 0)
+                start = current = System.currentTimeMillis();
+        }
+        
         public void onEvent(EventPublisher ep, Event e) {
             synchronized (Mailbox.this) {
                 eventRcvd = true;
                 Mailbox.this.notify();
             }
         }
-        public void blockingWait(final long timeoutMillis) {
-            long start = System.currentTimeMillis();
-            long remaining = timeoutMillis;
-            boolean infiniteWait = timeoutMillis == 0;
+        /** wait for either a timeout or event, returning true if the timeout occurred */        
+        public boolean blockingWait() {
+            long fin = start + tom;
             synchronized (Mailbox.this) {
-                while (!eventRcvd && (infiniteWait || remaining > 0)) {
+                while (!eventRcvd && current < fin) {
                     try {
-                        Mailbox.this.wait(infiniteWait? 0 : remaining);
-                    } catch (InterruptedException ie) {}
-                    long elapsed = System.currentTimeMillis() - start;
-                    remaining -= elapsed;
+                        Mailbox.this.wait(tom==0 ? 0 : fin-current);
+                    }
+                    catch (InterruptedException ie) {}
+                    if (tom > 0)
+                        current = System.currentTimeMillis();
                 }
+                if (!eventRcvd)
+                    removeSpaceAvailableListener(this);
             }
+            return current < fin;
         }
     }
     
     
     /**
-     * put a non-null message in the mailbox, and block the calling thread  for timeoutMillis
-     * if the mailbox is full. 
+     * put a non-null message in the mailbox, and block the calling thread for timeoutMillis
+     * if the mailbox is full
+     * @return true if the message was successfully put in the mailbox
      */
-    public void putb(T msg, final long timeoutMillis) {
-        BlockingSubscriber evs = new BlockingSubscriber();
-        if (!put(msg, evs)) {
-            evs.blockingWait(timeoutMillis);
-        }
-        if (!evs.eventRcvd) {
-            removeSpaceAvailableListener(evs);
-        }
+    public boolean putb(T msg,long timeoutMillis) {
+        BlockingSubscriber evs = new BlockingSubscriber(timeoutMillis);
+        boolean success;
+        while (!(success = put(msg, evs)) && evs.blockingWait()) {}
+        return success;
     }
 
     public synchronized int size() {
@@ -546,19 +480,9 @@ public class Mailbox<T> implements PauseReason, EventPublisher {
      * @return null if timed out.
      */
     public T getb(final long timeoutMillis) {
-        BlockingSubscriber evs = new BlockingSubscriber();
+        BlockingSubscriber evs = new BlockingSubscriber(timeoutMillis);
         T msg;
-        
-        if ((msg = get(evs)) == null) {
-            evs.blockingWait(timeoutMillis);
-            if (evs.eventRcvd) {
-                msg = get(null); // non-blocking get.
-                assert msg  != null: "Received event, but message is null";
-            } 
-        }
-        if (msg == null) {
-            removeMsgAvailableListener(evs);
-        }
+        while ((msg = get(evs))==null && evs.blockingWait()) {}
         return msg;
     }
 
@@ -574,8 +498,8 @@ public class Mailbox<T> implements PauseReason, EventPublisher {
     // Implementation of PauseReason
     public boolean isValid(Task t) {
         synchronized(this) {
-            return (t == sink) || srcs.contains(t);
-        } 
+            return ((t == sink) || srcs.contains(t)) && ! t.checkTimeout();
+        }
     }
 }
 

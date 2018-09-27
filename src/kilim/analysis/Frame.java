@@ -9,6 +9,7 @@ import static kilim.Constants.D_DOUBLE;
 import static kilim.Constants.D_FLOAT;
 import static kilim.Constants.D_LONG;
 import static kilim.Constants.D_OBJECT;
+import kilim.mirrors.Detector;
 import static org.objectweb.asm.Opcodes.ACC_STATIC;
 import static org.objectweb.asm.Opcodes.ACC_SYNCHRONIZED;
 import static org.objectweb.asm.Opcodes.ALOAD;
@@ -57,7 +58,7 @@ public class Frame {
      *      or a new Frame if the operation changed a slot on the stack
      *      or a local variable
      */
-    public Frame merge(Frame inframe, boolean localsOnly, Usage usage) {
+    public Frame merge(Detector det,Frame inframe, boolean localsOnly, Usage usage) {
         int slen = stacklen;
 
         Value[] nst = null; // new stack. allocated if needed
@@ -69,7 +70,7 @@ public class Frame {
                 Value va = st[i];
                 Value vb = ist[i];
                 if (va == vb || va.equals(vb)) continue;
-                Value newval = va.merge(vb);
+                Value newval = va.merge(det,vb);
                 if (newval != va) {
                     if (nst == null) nst = dupArray(st);
                     nst[i] = newval;
@@ -85,7 +86,7 @@ public class Frame {
             Value va = lo[i];
             Value vb = ilo[i];
             if (va == vb || va.equals(vb)) continue;
-            Value newval = va.merge(vb);
+            Value newval = va.merge(det,vb);
             if (newval != va) {
                 if (nlo == null) nlo = dupArray(lo);
                 nlo[i] = newval;
@@ -125,13 +126,13 @@ public class Frame {
             setLocal(i, Value.V_UNDEFINED);
         }
         int local = 0;
-        int paramPos = 100000;
+        int fakeParamPos = 100000;
         if ((method.access & ACC_STATIC) == 0) {
             // 0th local is "this"
-            setLocal(local++, Value.make(paramPos++,classDesc));
+            setLocal(local++, Value.make(fakeParamPos++,classDesc));
         }
         for (int i = 0; i < argTypeDescs.length; i++) {
-            local += setLocal(local, Value.make(paramPos++, argTypeDescs[i]));
+            local += setLocal(local, Value.make(fakeParamPos++, argTypeDescs[i]));
         }
         if ((method.access & ACC_SYNCHRONIZED) != 0) {
             numMonitorsActive = 1;

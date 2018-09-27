@@ -34,6 +34,14 @@ public class Usage {
     private BitSet in;
 
     /**
+     *  born.bit(i) == 1 (from LSB) if the ith var has been defined prior
+     *  either as a method parameter or by a write
+     *  only vars that have been born can be live
+     *  (used to protect against vars that are def'd in a block and used in the catch, eg the exception)
+     */
+    private BitSet born;
+
+    /**
      * use.bit(i) == 1 (from LSB) if the ith var is read before it has been written. The bit vector
      * as a whole represents the set of vars that the BB needs from its predecessors.
      */
@@ -47,11 +55,15 @@ public class Usage {
      */
     private BitSet def;
 
+    /** the born value has not yet been modified */
+    boolean firstBorn = true;
+
     public Usage(int numLocals) {
         nLocals = numLocals;
         in = new BitSet(numLocals);
         use = new BitSet(numLocals);
         def = new BitSet(numLocals);
+        born = new BitSet(numLocals);
     }
 
     public void read(int var) {
@@ -66,6 +78,10 @@ public class Usage {
         assert var < nLocals : "local var num=" + var + " exceeds nLocals = " + nLocals;
         def.set(var);
     }
+    public void born(int var) {
+        assert var < nLocals : "local var num=" + var + " exceeds nLocals = " + nLocals;
+        born.set(var);
+    }
 
     /**
      * return true if var is live at the entrance to this BB.
@@ -78,10 +94,15 @@ public class Usage {
      * This is the standard liveness calculation (Dragon Book, section 10.6). At each BB (and its
      * corresponding usage), we evaluate "in" using use and def. in = use U (out \ def) where out =
      * U succ.in, for all successors
+     * 
+     * this algorithm has been modified to treat catch blocks as occurring anywhere
+     * ie, that vars defined in a try may never be set
+     * however, this only applies to vars that have been defined at least once (ie, born)
      */
-    public boolean evalLiveIn(ArrayList<Usage> succUsage) {
+    public boolean evalLiveIn(ArrayList<Usage> succUsage,ArrayList<Handler> handUsage) {
         BitSet out = new BitSet(nLocals);
         BitSet old_in = (BitSet) in.clone();
+        if (handUsage==null) handUsage = new ArrayList();
         if (succUsage.size() == 0) {
             in = use;
         } else {
@@ -91,18 +112,57 @@ public class Usage {
                 out.or(succUsage.get(i).in);
             }
             // calc out \ def == out & ~def == ~(out | def)
+            // unless a var has been def'd in all catch blocks, assume it may fail to def
             BitSet def1 = (BitSet) def.clone();
+            for (Handler handle : handUsage)
+                def1.and(handle.catchBB.usage.def);
             def1.flip(0, nLocals);
             out.and(def1);
+            for (Handler handler : handUsage)
+                out.or(handler.catchBB.usage.use);
+            // catch block vars may be def'd in this block, but we can't easily know if the
+            // def has occurred before the throw
+            // if the var has never been def'd (or was a parameter), then it can't be live
+            out.and(born);
             out.or(use);
             in = out;
         }
         return !(in.equals(old_in));
     }
+    
+    /** get def OR born */
+    BitSet getCombo() {
+        BitSet combo = (BitSet) born.clone();
+        combo.or(def);
+        return combo;
+    }
+    
+    /** merge def into born */
+    void mergeBorn() { born.or(def); }
+    /** set born - used for the first BB only, others are calculated */
+    void initBorn(BitSet first) { born.or(first); firstBorn = false; }
+
+    /** 
+     * evolve the born value a single iteration by mixing in either pred or combo
+     * @param pred if combo is null, use pred.born
+     * @param combo if non-null, the value to mix in
+     * @return true if the evolution resulted in a change in the born value
+     */
+    boolean evalBornIn(Usage pred,BitSet combo) {
+        BitSet old = (BitSet) born.clone();
+        if (combo==null) combo = pred.born;
+        if (firstBorn)
+            born.or(combo);
+        else
+            born.and(combo);
+        firstBorn = false;
+        return ! old.equals(born);
+    }
+    
 
     /**
      * Called to coalesce a successor's usage into the current BB. Important: This should be called
-     * before live variable analysis begins, because we don't bother merging this.in.
+     * before live variable analysis begins, because we don't bother merging this.in or this.born.
      */
     void absorb(Usage succ) {
         BitSet b = (BitSet) this.def.clone();
@@ -120,6 +180,19 @@ public class Usage {
         printBits(sb, def);
         sb.append("in");
         printBits(sb, in);
+        sb.append("born");
+        printBits(sb, born);
+        return sb.toString();
+    }
+    public String toStringBits(String sep) {
+        StringBuffer sb = new StringBuffer();
+        printBitsFull(sb,use);
+        sb.append("   ");
+        printBitsFull(sb,def);
+        sb.append("   ");
+        printBitsFull(sb,in);
+        sb.append("   ");
+        printBitsFull(sb,born);
         return sb.toString();
     }
 
@@ -137,6 +210,19 @@ public class Usage {
         sb.append('\n');
     }
 
+    // "zero usages" but useful for inside the debugger
+    private String printBitsFull(BitSet b) {
+        StringBuffer sb = new StringBuffer();
+        printBitsFull(sb,b);
+        return sb.toString();
+    }
+    private void printBitsFull(StringBuffer sb, BitSet b) {
+        for (int i = 0; i < nLocals; i++) {
+            if (i > 0 && i%10==0) sb.append('.');
+            sb.append(b.get(i) ? '1' : '0');
+        }
+    }
+    
     /**
      * This is purely for testing purposes.
      * 
@@ -145,6 +231,15 @@ public class Usage {
      */
     public void setLiveIn(int var) {
         in.set(var);
+    }
+    /**
+     * This is purely for testing purposes.
+     * 
+     * @param var
+     *            local var index
+     */
+    public void setBornIn(int var) {
+        born.set(var);
     }
 
     Usage copy() {

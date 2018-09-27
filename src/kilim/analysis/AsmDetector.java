@@ -1,3 +1,5 @@
+// Copyright 2006 by sriram - offered under the terms of the MIT License
+
 package kilim.analysis;
 
 import java.util.LinkedList;
@@ -66,7 +68,11 @@ public class AsmDetector {
         return classCache;
     }
     public static void main(String[] args) {
-        AsmDetector.getPausableStatus("com/sleepycat/je/Database", "putInternal", "Lcom/sleepycat/je/Transaction;Lcom/sleepycat/je/DatabaseEntry;Lcom/sleepycat/je/DatabaseEntry;Lcom/sleepycat/je/dbi/PutMode;Lkilim/Fiber;)Lcom/sleepycat/je/OperationStatus;)V", Detector.DEFAULT);
+        AsmDetector.getPausableStatus(
+                "com/sleepycat/je/Database",
+                "putInternal",
+                "Lcom/sleepycat/je/Transaction;Lcom/sleepycat/je/DatabaseEntry;Lcom/sleepycat/je/DatabaseEntry;Lcom/sleepycat/je/dbi/PutMode;Lkilim/Fiber;)Lcom/sleepycat/je/OperationStatus;)V",
+                KilimContext.DEFAULT.detector);
     }
     
     static class ClassCache {

@@ -56,7 +56,7 @@ public class TestDynamicWeaver extends TestCase {
     public void testWeave() throws Exception {
         List<ClassInfo> classes = compile();
 
-        classes = new Weaver().weave(classes);
+        classes = new Weaver(null).weave(classes);
         
 
         HashSet<String> expectedClasses = new HashSet<String>(
@@ -77,7 +77,7 @@ public class TestDynamicWeaver extends TestCase {
             } catch (ClassNotFoundException ignore) {
                 // the new classes should not have been in the classpath, and 
                 // ClassNotFoundException is thrown as expected
-                assertTrue(cl.className.startsWith("code"));
+                assertTrue("class not found: " + cl.className,cl.className.startsWith("code"));
                 // define these classes
                 try {
                     cll.load(cl);

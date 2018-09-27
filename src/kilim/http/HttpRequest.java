@@ -85,11 +85,13 @@ public class HttpRequest extends HttpMsg {
     }
     
     public boolean keepAlive() {
-        return isOldHttp() ? "Keep-Alive".equals(getHeader("Connection;")) : !("close".equals(getHeader("Connection")));
+        return isOldHttp() ? "Keep-Alive".equals(getHeader("Connection")) : !("close".equals(getHeader("Connection")));
     }
-
     public KeyValues getQueryComponents() {
         String q = getQuery();
+        return getQueryComponents(q);
+    }
+    public KeyValues getQueryComponents(String q) {
         int len = q.length();
         if (q == null || len == 0)
             return new KeyValues(0);
@@ -241,6 +243,9 @@ public class HttpRequest extends HttpMsg {
 
     public String extractRange(int beg, int end) {
         return new String(buffer.array(), beg, (end - beg));
+    }
+    public byte [] extractBytes(int beg, int end) {
+        return java.util.Arrays.copyOfRange(buffer.array(),beg,end);
     }
 
 

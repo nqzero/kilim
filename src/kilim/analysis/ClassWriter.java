@@ -1,15 +1,12 @@
+// Copyright 2013 by Jason Pell <jason@pellcorp.com> - offered under the terms of the MIT License
+
 package kilim.analysis;
 
 import kilim.mirrors.Detector;
-import kilim.mirrors.RuntimeClassMirrors;
 
 public class ClassWriter extends org.objectweb.asm.ClassWriter {
 	private final Detector detector;
 	
-	public ClassWriter(final int flags, final ClassLoader classLoader) {
-		super(flags);
-		this.detector = new Detector(new RuntimeClassMirrors(classLoader));
-	}
 
 	public ClassWriter(final int flags, final Detector detector) {
 		super(flags);

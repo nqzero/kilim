@@ -1,4 +1,8 @@
-classes/**/*
-testclasses/**/*
-.DS_Store
-/classes
+/plugins/maven/target/
+/target
+/libs
+/demos/jetty/target/
+/nbactions.xml
+/demos/jetty/nb-configuration.xml
+/nb-configuration.xml
+/plugins/maven/nb-configuration.xml

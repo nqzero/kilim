@@ -15,6 +15,7 @@ import static org.objectweb.asm.Opcodes.ACC_VOLATILE;
 import static org.objectweb.asm.Opcodes.JSR;
 
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -27,6 +28,7 @@ import kilim.KilimException;
 import kilim.mirrors.Detector;
 
 import org.objectweb.asm.AnnotationVisitor;
+import org.objectweb.asm.Handle;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
@@ -45,7 +47,6 @@ import org.objectweb.asm.tree.TryCatchBlockNode;
  * This represents all the basic blocks of a method. 
  */
 public class MethodFlow extends MethodNode {
-    
 	
     /**
      * The classFlow to which this methodFlow belongs
@@ -86,11 +87,19 @@ public class MethodFlow extends MethodNode {
 
     private List<MethodInsnNode> pausableMethods = new LinkedList<MethodInsnNode>();
     
-	private final Detector detector;
+    final Detector detector;
 
     private TreeMap<Integer, LineNumberNode> lineNumberNodes = new TreeMap<Integer, LineNumberNode>();
 
     private HashMap<Integer, FrameNode> frameNodes = new HashMap<Integer, FrameNode>();
+
+    private boolean hasPausableInvokeDynamic;
+    
+    /** copy of handlers provided by asm - null after being assigned to the BBs */
+    ArrayList<Handler> origHandlers;
+    
+    /** stored value of the initial born variables */
+    private BitSet firstBorn;
     
     public MethodFlow(
             ClassFlow classFlow,
@@ -100,7 +109,7 @@ public class MethodFlow extends MethodNode {
             final String signature,
             final String[] exceptions,
             final Detector detector) {
-        super(access, name, desc, signature, exceptions);
+        super(Opcodes.ASM7_EXPERIMENTAL, access, name, desc, signature, exceptions);
         this.classFlow = classFlow;
         this.detector = detector;
         posToLabelMap = new ArrayList<LabelNode>();
@@ -148,6 +157,7 @@ public class MethodFlow extends MethodNode {
 
     
     public void analyze() throws KilimException {
+        preAssignCatchHandlers();
         buildBasicBlocks();
         if (basicBlocks.size() == 0) return;
         consolidateBasicBlocks();
@@ -163,17 +173,22 @@ public class MethodFlow extends MethodNode {
         // anything
         if (classFlow.isWoven || suppressPausableCheck) return;
         
+        String methodText = toString(classFlow.getClassName(),this.name,this.desc);
+        boolean ctor = this.name.endsWith("init>");
+
+        // constructors cannot be pausable because they must begin with the super call
+        // meaning the weaver is unable to inject the preamble
+        // and a super with side effects would get called multiple times
+        // refuse to weave them
+        if (ctor & hasPausableAnnotation)
+            throw new KilimException("Constructors cannot be declared Pausable: " + methodText + "\n");
+
         if (!hasPausableAnnotation && !pausableMethods.isEmpty()) {
-            String msg;
-            String name = toString(classFlow.getClassName(),this.name,this.desc);   
-            if (this.name.endsWith("init>")) {
-                msg = "Constructor " + name + " calls pausable methods:\n";
-            } else { 
-                msg = name + " should be marked pausable. It calls pausable methods\n";
-            }
-            for (MethodInsnNode min: pausableMethods) {
+            String msg = ctor
+                    ? "Constructor " + methodText + " illegally calls pausable methods:\n"
+                    : methodText + " should be marked pausable. It calls pausable methods\n";
+            for (MethodInsnNode min: pausableMethods)
                 msg += toString(min.owner, min.name, min.desc) + '\n';
-            }
             throw new KilimException(msg);
         }
         if (classFlow.superName != null) {
@@ -208,8 +223,8 @@ public class MethodFlow extends MethodNode {
     
     
     @Override
-    public void visitMethodInsn(int opcode, String owner, String name, String desc) {
-        super.visitMethodInsn(opcode, owner, name, desc);
+    public void visitMethodInsn(int opcode, String owner, String name, String desc,boolean itf) {
+        super.visitMethodInsn(opcode, owner, name, desc, itf);
         // The only reason for adding to pausableMethods is to create a BB for pausable
         // method call sites. If the class is already woven, we don't need this 
         // functionality.
@@ -220,6 +235,20 @@ public class MethodFlow extends MethodNode {
                 pausableMethods.add(min);
             }
         }
+    }
+    
+    @Override
+    public void visitInvokeDynamicInsn(String name, String desc, Handle bsm, Object... bsmArgs) {
+        if (!classFlow.isWoven) {
+            if (bsm.getOwner().equals("java/lang/invoke/LambdaMetafactory")) {
+                Handle lambdaBody = (Handle)bsmArgs[1];
+                String lambdaDesc = lambdaBody.getDesc();
+                if (detector.isPausable(lambdaBody.getOwner(), lambdaBody.getName(), lambdaDesc)) {
+                    hasPausableInvokeDynamic = true;
+                }
+            }
+        }
+        super.visitInvokeDynamicInsn(name, desc, bsm, bsmArgs);
     }
     
     @Override
@@ -298,8 +327,8 @@ public class MethodFlow extends MethodNode {
     public BBList getBasicBlocks() {
         return basicBlocks;
     }
-    
-    private void assignCatchHandlers() {
+
+    private void preAssignCatchHandlers() {
         @SuppressWarnings("unchecked")
         ArrayList<TryCatchBlockNode> tcbs = (ArrayList<TryCatchBlockNode>) tryCatchBlocks;
         /// aargh. I'd love to create an array of Handler objects, but generics
@@ -315,10 +344,38 @@ public class MethodFlow extends MethodNode {
                     tcb.type, 
                     getOrCreateBasicBlock(tcb.handler)));
         }
+        Collections.sort(handlers, Handler.startComparator());
+        origHandlers = handlers;
+        buildHandlerMap();
+    }
+    private void assignCatchHandlers() {
+        if (origHandlers==null) return;
         for (BasicBlock bb : basicBlocks) {
-            bb.chooseCatchHandlers(handlers);
+            bb.chooseCatchHandlers(origHandlers);
+        }
+        origHandlers = null;
+        handlerMap = null;
+    }
+    
+    private int [] handlerMap;
+    private void buildHandlerMap() {
+        handlerMap = new int[instructions.size()];
+        for (int ki=0; ki < handlerMap.length; ki++) handlerMap[ki] = -1;
+        int ki = 0;
+        for (int kh=0; kh < origHandlers.size(); kh++) {
+            Handler ho = origHandlers.get(kh);
+            for (; ki <= ho.from; ki++)
+                handlerMap[ki] = kh;
         }
     }
+
+    /** return the next handler.from >= start, else -1 - valid only until catch handlers are assigned */
+    int mapHandler(int start) {
+        if (handlerMap==null || start >= handlerMap.length) return -1;
+        int map = handlerMap[start];
+        return map < 0 ? -1 : origHandlers.get(map).from;
+    }
+    
     
     void buildBasicBlocks() {
         // preparatory phase
@@ -332,6 +389,46 @@ public class MethodFlow extends MethodNode {
             basicBlocks.add(bb);
         }
     }
+
+    private boolean calcBornOnce() {
+        BBList bbs = getBasicBlocks();
+        LinkedList<BasicBlock> pending = new LinkedList();
+        boolean changed = false, first = true;
+        pending.add(bbs.get(0));
+        bbs.get(0).usage.evalBornIn(null,new BitSet());
+        while (! pending.isEmpty()) {
+            BasicBlock bb = pending.pop();
+            if (bb.visited) continue;
+            bb.visited = true;
+            for (Handler ho : bb.handlers) {
+                changed |= ho.catchBB.usage.evalBornIn(bb.usage,null);
+                pending.addFirst(ho.catchBB);
+            }
+            BitSet combo = bb.usage.getCombo();
+            if (first)
+                combo.or(firstBorn);
+            for (BasicBlock so : bb.successors) {
+                changed |= so.usage.evalBornIn(bb.usage,combo);
+                pending.addFirst(so);
+            }
+            first = false;
+        }
+        return changed;
+    }
+    
+    private void calcBornUsage() {
+        // defined vars don't mix into handlers, so do 2 passes
+        //   propogate predecessor to successor (def,born) and handler (born)
+        //   mix def into born
+        while (true)
+            if (! calcBornOnce()) break;
+        getBasicBlocks().get(0).usage.initBorn(firstBorn);
+        for (BasicBlock bb : getBasicBlocks())
+            bb.usage.mergeBorn();
+    }
+    
+    /** print the bit by bit liveness data after calculation */
+    public static boolean debugPrintLiveness = false;
     
     /**
      * In live var analysis a BB asks its successor (in essence) about which
@@ -342,18 +439,48 @@ public class MethodFlow extends MethodNode {
      * spanning tree, but it seems like overkill for most bytecode
      * procedures. The order of computation doesn't affect the correctness;
      * it merely changes the number of iterations to reach a fixpoint.
+     * 
+     * the algorithm has been updated to track vars that been born, ie def'd by a parameter
      */
     private void doLiveVarAnalysis() {
         ArrayList<BasicBlock> bbs = getBasicBlocks();
         Collections.sort(bbs); // sorts in increasing startPos order
         
+        firstBorn = setArgsBorn(bbs.get(0));
+        
         boolean changed;
+        calcBornUsage();
         do {
             changed = false;
             for (int i = bbs.size() - 1; i >= 0; i--) {
                 changed = bbs.get(i).flowVarUsage() || changed;
             }
         } while (changed);
+        if (debugPrintLiveness) printUsage(bbs);
+    }
+
+    private BitSet setArgsBorn(BasicBlock bb) {
+        BitSet born = new BitSet(bb.flow.maxLocals);
+        int offset = 0;
+        if (!isStatic())
+            born.set(offset++);
+        for (String arg : TypeDesc.getArgumentTypes(desc)) {
+            born.set(offset);
+            offset += TypeDesc.isDoubleWord(arg) ? 2 : 1;
+        }
+        return born;
+    }
+    
+    void printUsage(ArrayList<BasicBlock> bbs) {
+        System.out.println(name);
+        if (bbs==null) bbs = getBasicBlocks();
+        for (BasicBlock bb : bbs) {
+            Usage uu = bb.usage;
+            String range = String.format("%4d %4d: ",bb.startPos,bb.endPos);
+            System.out.print(range + uu.toStringBits("  "));
+            System.out.println(" -- " + bb.printGeniology());
+        }
+        System.out.format("\n\n");
     }
     
     /**
@@ -518,9 +645,6 @@ public class MethodFlow extends MethodNode {
         return ((this.access & ACC_VOLATILE) != 0);
     }
 
-	public Detector detector() {
-		return this.classFlow.detector();
-}
 
     public void resetLabels() {
         for (int i = 0; i < posToLabelMap.size(); i++) {
@@ -529,7 +653,11 @@ public class MethodFlow extends MethodNode {
                 ln.resetLabel();
             }
         }
+    }
         
+
+    boolean needsWeaving() {
+        return isPausable() || hasPausableInvokeDynamic;
     }
 
 

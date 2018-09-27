@@ -19,6 +19,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import kilim.analysis.FileLister;
+import kilim.analysis.KilimContext;
+import kilim.mirrors.CachedClassMirrors;
 
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Label;
@@ -36,6 +39,7 @@ import org.objectweb.asm.Type;
  * Usage: java kilim.tools.Asm [options] <.j file(s)>
  * Options:
  *      -d <dir> : output directory (default: '.')
+ *      -f       : force            (default: false) write output even if output file is newer than source
  *      -q       : quiet            (default: verbose)
  *      -nf      : no stack frames  (default: compute stack frames)
  * </pre>
@@ -46,6 +50,7 @@ import org.objectweb.asm.Type;
  */
 public class Asm {
     static boolean                  quiet          = false;
+    static boolean                  force          = false;
     static String                   outputDir      = ".";
     static Pattern                  wsPattern      = Pattern.compile("\\s+");
     static Pattern                  commentPattern = Pattern.compile("^;.*$| ;[^\"]*");
@@ -65,6 +70,7 @@ public class Asm {
     private Pattern                 lastPattern = null;
 
     private LineNumberReader        reader;
+    private boolean skip = false;
 
     static HashMap<String, Integer> modifiers      = new HashMap<String, Integer>();
 
@@ -88,13 +94,18 @@ public class Asm {
     public static void main(String[] args) throws IOException {
         List<String> files = parseArgs(args);
         for (String arg : files) {
+            Asm asm = new Asm(arg);
+            asm.parse();
+            if (asm.skip) continue;
             if (!quiet) {System.out.println("Asm: "  + arg);}
-            new Asm(arg).write();
+            asm.write();
         }
     }
 
     public Asm(String afileName) throws IOException {
         fileName = afileName;
+    }
+    public Asm parse() throws IOException {
         reader = new LineNumberReader(new FileReader(fileName));
         cv = new ClassWriter(computeFrames? ClassWriter.COMPUTE_FRAMES : 0);  
         try {
@@ -117,6 +128,7 @@ public class Asm {
             System.out.println("Last pattern match: " + lastPattern);
             throw e;
         }
+        return this;
     }
 
     // .class public final Foo/Bar/Baz 
@@ -137,6 +149,10 @@ public class Asm {
         
         acc |= parseModifiers(group(2));
         className = group(4);
+        if (!force && check()) {
+            skip = true;
+            return;
+        }
         String superClassName = parseSuper();
         String[] interfaces = parseInterfaces();
         cv.visit((computeFrames ? V1_6 : V1_5), acc, className, null, superClassName, interfaces);
@@ -531,7 +547,10 @@ public class Asm {
                 String owner = group(1);
                 String name = group(2);
                 String desc = group(3);
-                mv.visitMethodInsn(opcode, owner, name, desc);
+                boolean itf = false;
+                try { itf = KilimContext.DEFAULT.detector.mirrors.classForName(owner).isInterface(); }
+                catch (Exception ex) {}
+                mv.visitMethodInsn(opcode, owner, name, desc, itf);
                 break;
             }
             case TYPE:
@@ -765,10 +784,17 @@ public class Asm {
         return p.split(s);
     }
 
+    private String outputName() {
+        return outputDir + '/' + className + ".class";
+    }
+    private boolean check() {
+        return FileLister.check(fileName,outputName());
+    }
+    
     private void write() throws IOException {
         String dir = outputDir + "/" + getDirName(className);
         mkdir(dir);
-        String fileName = outputDir + '/' + className + ".class";
+        String fileName = outputName();
         FileOutputStream fos = new FileOutputStream(fileName);
         fos.write(cv.toByteArray());
         fos.close();
@@ -797,6 +823,8 @@ public class Asm {
                 outputDir = args[++i];
             } else if (arg.equals("-q")) {
                 quiet = true;
+            } else if (arg.equals("-f")) {
+                force = true;
             } else if (arg.equals("-nf")) {
                 computeFrames = false;
             } else {

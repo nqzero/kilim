@@ -88,6 +88,11 @@ public final class Fiber {
     static {
         PAUSE_STATE.pc = 1;
     }
+
+    public static class MethodRef {
+        String classname, methodname;
+        public MethodRef(String cn,String mn) { classname = cn; methodname = mn; }
+    }
     
     public Fiber(Task t) {
         task = t;
@@ -105,7 +110,26 @@ public final class Fiber {
         throw new IllegalStateException("pause() called without weaving");
     }
 
+
+    public void reset() {
+        curState = null;
+        pc = 0;
+        for (int ii=0; ii<stateStack.length; ii++) stateStack[ii] = null;
+        iStack = -1;
+        isPausing = false;
+        isDone = false;
+    }
     
+    /** yield cooperatively to the next task waiting to use the thread */
+    public static void yield() throws Pausable {
+        Task.errNotWoven();
+    }
+
+    /** yield cooperatively to the next task waiting to use the thread */
+    public static void yield(Fiber f) {
+        f.togglePause();
+    }
+
     /*
      * The user calls pause(), but the weaver changes the
      * call to pause(Fiber), which alternates between
@@ -244,7 +268,7 @@ public final class Fiber {
      */
     public int upEx() {
         // compute new iStack. 
-        int is = task.getStackDepth() - 2; // remove upEx and convert to 0-based index. 
+        int is = Task.getStackDepth(task) - 2; // remove upEx and convert to 0-based index. 
         State cs = stateStack[is];
 
         for (int i = iStack; i >= is; i--) {
@@ -265,6 +289,12 @@ public final class Fiber {
         assert stateStack[iStack] != PAUSE_STATE : "No callee: this state is the pause state";
         assert stateStack[iStack] != null : "Callee is null";
         return stateStack[iStack + 1].self;
+    }
+    
+    public void setCallee(Object callee) {
+        if (isPausing) {
+            stateStack[iStack].self = callee;
+        }
     }
 
     private State[] ensureSize(int newsize) {
@@ -323,7 +353,7 @@ public final class Fiber {
     }
     
     public void wrongPC() {
-    	throw new IllegalStateException("Wrong pc: " + pc);
+        throw new IllegalStateException("Wrong pc: " + pc);
     }
 
     static private void stateToString(StringBuilder sb, State s) {
@@ -348,5 +378,9 @@ public final class Fiber {
 
     void clearPausing() {
         isPausing = false;
+    }
+    public interface Worker {
+        public void execute() throws Pausable, Exception;
+        public void execute(kilim.Fiber fiber) throws Exception;
     }
 }

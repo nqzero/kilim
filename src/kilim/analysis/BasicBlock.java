@@ -43,6 +43,7 @@ import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.IincInsnNode;
 import org.objectweb.asm.tree.InsnList;
 import org.objectweb.asm.tree.IntInsnNode;
+import org.objectweb.asm.tree.InvokeDynamicInsnNode;
 import org.objectweb.asm.tree.JumpInsnNode;
 import org.objectweb.asm.tree.LabelNode;
 import org.objectweb.asm.tree.LdcInsnNode;
@@ -185,11 +186,16 @@ public class BasicBlock implements Comparable<BasicBlock> {
      */
     public Usage                  usage;
 
+    /** the block has already been visited during the born calculation */
+    boolean visited;
+    
+    
     /**
      * A cached version of all sucessors' usage, successors being catch handlers
      * and real successors.
      */
     ArrayList<Usage>      succUsage;
+    ArrayList<Usage>      handUsage;
 
     /**
      * The frame at the BB's entry point. It changes when propagating changes
@@ -222,10 +228,6 @@ public class BasicBlock implements Comparable<BasicBlock> {
         successors = new ArrayList<BasicBlock>(2);
     }
 
-    Detector detector() {
-    	return flow.detector();
-    }
-    
     /**
      * Absorb as many instructions until the next label or the next transfer of
      * control instruction. In the first pass we may end up creating many many
@@ -242,13 +244,14 @@ public class BasicBlock implements Comparable<BasicBlock> {
     int initialize(int pos) {
         AbstractInsnNode ain;
         startPos = pos;
-
+        
         BasicBlock bb;
         boolean endOfBB = false;
         boolean hasFollower = true;
+        int nextCatch = flow.mapHandler(pos+1);
         int size = flow.instructions.size();
         for (; pos < size; pos++) {
-            if (pos > startPos && flow.getLabelAt(pos) != null) {
+            if (pos > startPos && (pos==nextCatch || flow.getLabelAt(pos) != null)) {
                 pos--;
                 hasFollower = true;
                 endOfBB = true;
@@ -346,10 +349,14 @@ public class BasicBlock implements Comparable<BasicBlock> {
                 case INVOKESTATIC:
                 case INVOKEINTERFACE:
                 case INVOKESPECIAL:
+                    // Note that the case of INVOKEDYNAMIC does not need to be handled
+                    // because it is merely a placeholder for an adaptor that converts captured/dynamic
+                    // arguments to a functional interface. This is never going to be pausable.
                     if (flow.isPausableMethodInsn((MethodInsnNode) ain)) {
                         LabelNode il = flow.getOrCreateLabelAtPos(pos);
                         if (pos == startPos) {
                             setFlag(PAUSABLE);
+                            endOfBB = true;
                         } else {
                             bb = flow.getOrCreateBasicBlock(il);
                             bb.setFlag(PAUSABLE);
@@ -422,8 +429,12 @@ public class BasicBlock implements Comparable<BasicBlock> {
         while (true) {
             if (successors.size() == 1) {
                 BasicBlock succ = successors.get(0);
+                // fixme:generality - should the endPos be checked too
+                //   (in java, seems like there should always be a goto, so not needed)
+                int nextCatch = flow.mapHandler(succ.startPos);
+                boolean isTry = nextCatch==succ.startPos;
                 if (succ.numPredecessors == 1 && lastInstruction() != GOTO && lastInstruction() != JSR
-                        && !succ.isPausable()) {
+                        && !succ.isPausable() && !isPausable() && !isTry) {
                     // successor can be merged
                     // absorb succesors and usage mask
                     this.successors = succ.successors;
@@ -945,7 +956,7 @@ public class BasicBlock implements Comparable<BasicBlock> {
                     case INVOKEVIRTUAL:
                     case INVOKESPECIAL:
                     case INVOKESTATIC:
-                    case INVOKEINTERFACE:
+                    case INVOKEINTERFACE: {
                         // pop args, push return value
                         MethodInsnNode min = ((MethodInsnNode) ain);
                         String desc = min.desc;
@@ -965,6 +976,16 @@ public class BasicBlock implements Comparable<BasicBlock> {
                             frame.push(Value.make(i, desc));
                         }
                         break;
+                    }
+                    case INVOKEDYNAMIC: {
+                        InvokeDynamicInsnNode indy = (InvokeDynamicInsnNode)ain;
+                        String desc = indy.desc;
+                        frame.popn(TypeDesc.getNumArgumentTypes(desc));
+                        desc = TypeDesc.getReturnTypeDesc(desc);
+                        assert (desc != D_VOID) : "InvokeDynamic return value should be a functional interface";
+                        frame.push(Value.make(i, desc));
+                        break;
+                    }
                         
                     case NEW:
                         canThrowException = true;
@@ -1122,7 +1143,7 @@ public class BasicBlock implements Comparable<BasicBlock> {
         } else {
             Frame ret;
             // Absorb only those local vars dictacted by usage.in.
-            ret = startFrame.merge(inframe, localsOnly, usage);
+            ret = startFrame.merge(flow.detector, inframe, localsOnly, usage);
             if (ret == startFrame) { // no change
                 enqueue = false;
             } else {
@@ -1153,19 +1174,27 @@ public class BasicBlock implements Comparable<BasicBlock> {
         return (AbstractInsnNode) flow.instructions.get(pos);
     }
 
+    /** pretty print successor and catch BB ids */
+    String printGeniology() {
+        String ts = "";
+        for (BasicBlock succ : successors)
+            ts += String.format(" %4d",succ.id);
+
+        String th = "";
+        for (Handler h : handlers)
+            th += String.format(" %4d",h.catchBB.id);
+        return String.format("%4d:%-20s...%-20s",id,ts,th);
+    }
+    
+    /** calculate the liveness usage by evolution (assume born usage has already been calculated) */
     public boolean flowVarUsage() {
-        // for live var analysis, treat catch handlers as successors too.
+//        assert(succBlocks != null);
         if (succUsage == null) {
-            succUsage = new ArrayList<Usage>(successors.size()
-                    + handlers.size());
-            for (BasicBlock succ : successors) {
-                succUsage.add(succ.usage);
-            }
-            for (Handler h : handlers) {
-                succUsage.add(h.catchBB.usage);
-            }
+            succUsage = new ArrayList<Usage>(successors.size() + handlers.size());
+            for (BasicBlock succ : successors) succUsage.add(succ.usage);
+            for (Handler h : handlers)         succUsage.add(h.catchBB.usage);
         }
-        return usage.evalLiveIn(succUsage);
+        return usage.evalLiveIn(succUsage,handlers);
     }
 
     /**

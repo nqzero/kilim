@@ -24,7 +24,7 @@ import org.objectweb.asm.tree.FieldNode;
  */
 public class ClassFlow extends ClassNode {
     ArrayList<MethodFlow> methodFlows;
-    ClassReader           cr;
+    public ClassReader           cr;
     String                classDesc;
     /**
      * true if any of the methods contained in the class file is pausable. ClassWeaver uses it later to avoid weaving if
@@ -36,22 +36,25 @@ public class ClassFlow extends ClassNode {
      * true if the .class being read is already woven.
      */
     public boolean        isWoven = false;
-    private Detector      detector;
+    public KilimContext context;
 
-    public ClassFlow(InputStream is, Detector detector) throws IOException {
+    /** the original bytecode associated with the class */
+    public byte [] code;
+
+    public ClassFlow(KilimContext context,InputStream is) throws IOException {
+        super(Opcodes.ASM7_EXPERIMENTAL);
+        this.context = context;
         cr = new ClassReader(is);
-        this.detector = detector;
+        code = cr.b;
     }
 
-    public ClassFlow(String aClassName, Detector detector) throws IOException {
+    public ClassFlow(KilimContext context,String aClassName) throws IOException {
+        super(Opcodes.ASM7_EXPERIMENTAL);
+        this.context = context;
         cr = new ClassReader(aClassName);
-        this.detector = detector;
+        code = cr.b;
     }
 
-    public ClassFlow(byte[] data, Detector detector) {
-        cr = new ClassReader(data);
-        this.detector = detector;
-    }
 
 
     @Override
@@ -64,7 +67,7 @@ public class ClassFlow extends ClassNode {
             final String[] exceptions)
     {
         MethodFlow mn = new MethodFlow( this, access, name,  desc, signature,
-                exceptions, detector);
+                exceptions, context.detector);
         super.methods.add(mn);
         return mn;
     }
@@ -77,7 +80,6 @@ public class ClassFlow extends ClassNode {
     public ArrayList<MethodFlow> analyze(boolean forceAnalysis) throws KilimException {
         // cr.accept(this, ClassReader.SKIP_DEBUG);
 
-        Detector save = Detector.setDetector(detector);
         try {
             cr.accept(this, /*flags*/ClassReader.SKIP_FRAMES);
             for (Object o : this.fields) {
@@ -106,7 +108,7 @@ public class ClassFlow extends ClassNode {
                     mf.verifyPausables();
                     if (mf.isPausable())
                         isPausable = true;
-                    if ((mf.isPausable() || forceAnalysis) && (!mf.isAbstract())) {
+                    if ((mf.needsWeaving() || forceAnalysis) && (!mf.isAbstract())) {
                         mf.analyze();
                     }
                     flows.add(mf);
@@ -121,7 +123,6 @@ public class ClassFlow extends ClassNode {
             return flows;
 
         } finally {
-            Detector.setDetector(save);
         }
     }
 
@@ -159,7 +160,28 @@ public class ClassFlow extends ClassNode {
         return (this.access & Opcodes.ACC_INTERFACE) != 0;
     }
 
-    public Detector detector() {
-        return detector;
+    boolean isJava7() {
+        return (version & 0x00FF) < 52;
+    }
+    
+    /*
+     * If this class is a functional interface, return the one "Single Abstract
+     * Method". If there is more than one abstract method, return null.
+     * SAM methods are given special treatment 
+     */
+    public MethodFlow getSAM() {
+        if (!isInterface() || isJava7()) {
+            return null;
+        }
+        MethodFlow sam = null;
+        for (MethodFlow mf: methodFlows) {
+            if (mf.isAbstract()) {
+                if (sam != null) {
+                    return null;
+                }
+                sam = mf;
+            }
+        }
+        return sam;
     }
 }

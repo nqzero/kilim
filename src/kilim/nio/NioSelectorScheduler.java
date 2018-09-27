@@ -1,4 +1,4 @@
-/* Copyright (c) 2006, Sriram Srinivasan
+/* Copyright (c) 2006, Sriram Srinivasan, nqzero 2016
  *
  * You may distribute this software under the terms of the license 
  * specified in the file "License"
@@ -12,15 +12,15 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
+import java.nio.channels.spi.AbstractSelectableChannel;
 import java.util.Iterator;
-import java.util.LinkedList;
+import java.util.concurrent.atomic.AtomicBoolean;
+
 
 import kilim.Mailbox;
 import kilim.Pausable;
-import kilim.RingQueue;
 import kilim.Scheduler;
 import kilim.Task;
-import kilim.http.IntList;
 
 /**
  * This class wraps a selector and runs it in a separate thread.
@@ -41,84 +41,67 @@ import kilim.http.IntList;
  * </pre>
  *  @see SessionTask 
  */
-public class NioSelectorScheduler extends Scheduler {
+public class NioSelectorScheduler {
     //TODO: Fix hardcoding
     public static int         LISTEN_BACKLOG  = 1000;
 
-    public Selector           sel;
+    private Selector           sel;
     /* 
      * The thread in which the selector runs. THe NioSelectorScheduler only runs one thread,
      * unlike typical schedulers that manage a pool of threads.
      */
-    public SelectorThread     selectorThread;
+    private SelectorThread     selectorThread;
     
     /**
      * SessionTask registers its endpoint with the selector by sending a SockEvent
      * message on this mailbox. 
      */
-    public Mailbox<SockEvent> registrationMbx = new Mailbox<SockEvent>(1000);
+    final Mailbox<SockEvent> regbox = new Mailbox<SockEvent>(1000);
+    AtomicBoolean update = new AtomicBoolean();
+    final private Task regtask;
+    volatile boolean running = true;
     
-
     /**
      * @throws IOException
      */
     public NioSelectorScheduler() throws IOException {
-        this.sel = Selector.open();
-        selectorThread = new SelectorThread(this);
+        sel = Selector.open();
+        selectorThread = new SelectorThread();
         selectorThread.start();
-        Task t = new RegistrationTask(registrationMbx, sel);
-        t.setScheduler(this);
+        regtask = new RegistrationTask();
+        regtask.start();
+    }
+
+    public int listen(int port,SessionFactory factory, Scheduler sockTaskScheduler) throws IOException {
+        ListenTask t = new ListenTask(port);
+        t.factory = factory;
+        return listen(t,sockTaskScheduler);
+    }
+
+    public int listen(int port,Class<? extends SessionTask> sockTaskClass,Scheduler sockTaskScheduler) throws IOException {
+        ListenTask t = new ListenTask(port);
+        t.sessionClass = sockTaskClass;
+        return listen(t,sockTaskScheduler);
+    }
+    private int listen(ListenTask t,Scheduler sockTaskScheduler) {
+        t.setScheduler(sockTaskScheduler);
         t.start();
+        return t.port;
     }
 
-    public int listen(int port, Class<? extends SessionTask> sockTaskClass, Scheduler sockTaskScheduler)
-            throws IOException {
-        ListenTask t = new ListenTask(port, this, sockTaskClass);
-        t.setScheduler(this);
-        t.start();
-        return t.port(); 
-    }
-
-    @Override
-    public void schedule(Task t) {
-        addRunnable(t);
-        if (Thread.currentThread() != selectorThread) {
-            sel.wakeup();
-        }
-    }
-
-    @Override
-    public void shutdown() {
-        super.shutdown();
-        sel.wakeup();
-    }
+    public void shutdown() { running = false; sel.wakeup(); }
     
-    synchronized void addRunnable(Task t) {
-        runnableTasks.put(t);
-    }
-
-    synchronized RingQueue<Task> swapRunnables(RingQueue<Task> emptyRunnables) {
-        RingQueue<Task> ret = runnableTasks;
-        runnableTasks = emptyRunnables;
-        return ret;
-    }
-
-    static class SelectorThread extends Thread {
-        NioSelectorScheduler _scheduler;
-
-        public SelectorThread(NioSelectorScheduler scheduler) {
-            super("KilimSelector");
-            _scheduler = scheduler;
+    class SelectorThread extends Thread {
+        public SelectorThread() {
+            super("KilimSelector"+":"+Thread.currentThread().getId());
         }
 
         @Override
         public void run() {
-            Selector sel = _scheduler.sel;
-            RingQueue<Task> runnables = new RingQueue<Task>(100); // to swap with scheduler
             while (true) {
                 int n;
                 try {
-                    if (_scheduler.isShutdown()) {
+                    if (!running) {
                         Iterator<SelectionKey> it = sel.keys().iterator();
                         while (it.hasNext()) {
                             SelectionKey sk = it.next();
@@ -134,15 +117,10 @@ public class NioSelectorScheduler extends Scheduler {
                         }
                         break;
                     }
-                    if (_scheduler.numRunnables() > 0) {
-                        n = sel.selectNow();
-                    } else {
-                        n = sel.select();
-                    }
-                } catch (IOException ignore) {
-                    n = 0;
-                    ignore.printStackTrace();
-                }
+                    // thread safe - addTask latches update with a wakeup
+                    if (update.get()) n = sel.selectNow();
+                    else n = sel.select();
+                } catch (IOException ignore) { n = 0; ignore.printStackTrace(); }
                 if (n > 0) {
                     Iterator<SelectionKey> it = sel.selectedKeys().iterator();
                     while (it.hasNext()) {
@@ -150,68 +128,39 @@ public class NioSelectorScheduler extends Scheduler {
                         it.remove();
                         Object o = sk.attachment();
                         sk.interestOps(0);
-                        if (o instanceof SockEvent) {
-                            SockEvent ev = (SockEvent) o;
-                            ev.replyTo.putnb(ev);
-                        } else if (o instanceof Task) {
-                            Task t = (Task) o;
-                            t.resume();
-                        }
+                        assert(o instanceof SockEvent);
+                        SockEvent ev = (SockEvent) o;
+                        ev.replyTo.putnb(ev);
                     }
                 }
-                runnables.reset();
-                runnables = _scheduler.swapRunnables(runnables);
-                // Now execute all runnables inline
-                // if (runnables.size() == 0) {
-                // System.out.println("IDLE");
-                // }
-                while (runnables.size() > 0) {
-                    Task t = runnables.get();
-                    t._runExecute(null);
-                    // If task calls Task.yield, it would have added itself to scheduler already.
-                    // If task's pauseReason is YieldToSelector, then nothing more to do.
-                    // Task should be registered for the appropriate Selector op.
-                    // In all other cases, (Task.sleep(), Mailbox.get() etc.), unregister
-                    // the channel
-                    if (t instanceof SessionTask) {
-                        SessionTask st = (SessionTask) t;
-                        if (st.isDone()) {
-                            st.close();
-                        }
-                    }
-                }
+                if (update.getAndSet(false))
+                    regtask.run();
             }
         }
     }
 
-    public synchronized int numRunnables() {
-        return runnableTasks.size();
+    public interface SessionFactory {
+        public SessionTask get() throws Exception;
     }
-
-    public static class ListenTask extends SessionTask {
+    class ListenTask extends SessionTask {
         Class<? extends SessionTask> sessionClass;
+        SessionFactory               factory;
         ServerSocketChannel          ssc;
         int                          port;
 
-        public ListenTask(int port, NioSelectorScheduler selScheduler, Class<? extends SessionTask> sessionClass)
-                throws IOException {
+        ListenTask(int port) throws IOException {
             this.port = port;
-            this.sessionClass = sessionClass;
             this.ssc = ServerSocketChannel.open();
             ssc.socket().setReuseAddress(true);
-            ssc.socket().bind(new InetSocketAddress(port), LISTEN_BACKLOG); //
+            ssc.socket().bind(new InetSocketAddress(port), LISTEN_BACKLOG);
             ssc.configureBlocking(false);
-            setEndPoint(new EndPoint(selScheduler.registrationMbx, ssc));
+            endpoint = new EndPoint(NioSelectorScheduler.this,ssc);
         
             // if port is automatically assigned then retrieve actual value
             if(port == 0) {
                 this.port = ssc.socket().getLocalPort();
             };    
         }
-
-        public int port() {
-            return this.port;
-        }    
 
         public String toString() {
             return "ListenTask: " + port;
@@ -231,37 +180,26 @@ public class NioSelectorScheduler extends Scheduler {
                 } else {
                     ch.socket().setTcpNoDelay(true);
                     ch.configureBlocking(false);
-                    SessionTask task = sessionClass.newInstance();
-                    try {
-                        EndPoint ep = new EndPoint(this.endpoint.sockEvMbx, ch);
-                        task.setEndPoint(ep);
-                        n++;
-                        // System.out.println("Num sessions created:" + n);
-                        task.start();
-                    } catch (IOException ioe) {
-                        ch.close();
-                        System.err.println("Unable to start session:");
-                        ioe.printStackTrace();
-                    }
+                    SessionTask task = (factory==null) ? sessionClass.newInstance() : factory.get();
+                    task.endpoint = new EndPoint(NioSelectorScheduler.this,ch);
+                    n++;
+                    task.start();
                 }
             }
         }
     }
 
-    public static class RegistrationTask extends Task {
-        Mailbox<SockEvent> mbx;
-        Selector           selector;
-
-        public RegistrationTask(Mailbox<SockEvent> ambx, Selector asel) {
-            mbx = ambx;
-            selector = asel;
+    public class RegistrationTask extends Task {
+        private RegistrationTask() {}
+        public void wake() {
+            update.set(true);
+            if (Thread.currentThread() != selectorThread)
+                sel.wakeup();
         }
-
-        @Override
         public void execute() throws Pausable, Exception {
             while (true) {
-                SockEvent ev = mbx.get();
-                SelectionKey sk = ev.ch.register(selector, ev.interestOps);
+                SockEvent ev = regbox.get();
+                SelectionKey sk = ev.ch.register(sel, ev.interestOps);
                 sk.attach(ev);
             }
         }

@@ -9,6 +9,7 @@ package kilim.test;
 import junit.framework.TestCase;
 import kilim.ExitMsg;
 import kilim.Mailbox;
+import kilim.Continuation;
 import kilim.Scheduler;
 import kilim.Task;
 import kilim.test.ex.ExYieldBase;
@@ -41,6 +42,10 @@ public class TestYield extends TestCase {
 
     public void testDupsInStack() throws Exception {
         runTask(new kilim.test.ex.ExYieldDups(1));
+    }
+
+    public void testLongArgs() throws Exception {
+        runTask(new kilim.test.ex.ExYieldDups(2));
     }
 
     public void testConstantsInStack() throws Exception {
@@ -80,5 +85,12 @@ public class TestYield extends TestCase {
             }
         }
         s.shutdown();
+    }
+    public static void runPure(Continuation pure) throws Exception {
+        while (!pure.run()) {}
+        if (pure.ex() != null) {
+            pure.ex().printStackTrace();
+            fail(pure.ex().toString());
+        }
     }
 }

@@ -10,6 +10,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 
 import junit.framework.TestCase;
+import kilim.ExitMsg;
 import kilim.Mailbox;
 import kilim.Pausable;
 import kilim.Task;
@@ -70,6 +71,27 @@ public class TestMailbox extends TestCase {
             Msg m = mainmb.getb(1000);
             assertTrue(m.num == i);
         }
+    }
+    
+    public void testPutb() {
+        final int block = 100, timeout = 10, delay = 50;
+        final int num = 100;
+        final Mailbox<Integer> mb = new Mailbox(1,1), result = new Mailbox();
+        Task task = new Task() {
+            public void execute() throws Pausable,Exception {
+                Integer [] vals = new Integer[num];
+                Task.sleep(delay);
+                for (int ii = 0; ii < num; ii++)
+                    vals[ii] = mb.get(timeout);
+                for (int ii = 0; ii < num; ii++)
+                    result.put(vals[ii],timeout);
+            }
+        }.start();
+        int secret = 791;
+        for (int ii = 0; ii < num; ii++)
+            mb.putb(secret+ii,block);
+        for (int ii = 0; ii < num; ii++)
+            assertTrue(result.getb(block) == secret+ii);
     }
 
     public void testSimpleTask_Pausing() {
@@ -199,6 +221,12 @@ public class TestMailbox extends TestCase {
             assertTrue(m != null && sentMsgs.contains(m));
         }
     }
+
+    // Test mailbox by sending and receiving 1000 times more messages then
+    // mailbox's maxSize
+    public void testMailBoxWithMaxSize() {
+        Consumer.testing();
+    }
 }
 
 class Msg {
@@ -291,5 +319,72 @@ class SelectTaskMB extends Task {
                     mainmb.put(new Msg());
             }
         }
+    }
+}
+
+
+
+class Consumer extends Task {
+    public static final int MAILBOX_CAPACITY = 32 * 1024;
+    public static final int REPETITIONS = 32 * 1024 * 1024;
+    public static final Integer TEST_VALUE = Integer.valueOf(777);
+    Mailbox<Integer> mymb;
+    static Integer result;
+
+    public Consumer(Mailbox<Integer> mymb) {
+        this.mymb = mymb;
+    }
+
+    public void execute() throws Pausable {
+        int i = REPETITIONS;
+
+        do {
+            result = mymb.get();
+        } while (0 != --i);
+    }
+
+    public static void testing() {
+        performanceRun();
+    }
+
+    public static void performanceRun() {
+        // Init mailbox with maxSize given
+        Mailbox<Integer> mbox = new Mailbox<Integer>(MAILBOX_CAPACITY,
+                MAILBOX_CAPACITY);
+        Mailbox<ExitMsg> exitmb1 = new Mailbox<ExitMsg>();
+        Mailbox<ExitMsg> exitmb2 = new Mailbox<ExitMsg>();
+        // producer thread to produce msgs
+        Producer p1 = new Producer(mbox);
+        p1.informOnExit(exitmb1);
+        // Task to consume msgs from mailbox
+        Consumer t2 = new Consumer(mbox);
+        t2.informOnExit(exitmb2);
+
+        p1.start();
+
+        t2.start();
+        // wait for both producer and consumer to finish task
+        exitmb1.getb();
+        exitmb2.getb();
+
+    }
+}
+
+class Producer extends Task {
+    public static final int MAILBOX_CAPACITY = 32 * 1024;
+    public static final int REPETITIONS = 32 * 1024 * 1024;
+    public static final Integer TEST_VALUE = Integer.valueOf(777);
+
+    Mailbox<Integer> mymb;
+
+    public Producer(Mailbox<Integer> mymb) {
+        this.mymb = mymb;
+    }
+
+    public void execute() throws Pausable {
+        int i = REPETITIONS;
+        do {
+            mymb.put(TEST_VALUE);
+        } while (0 != --i);
     }
 }

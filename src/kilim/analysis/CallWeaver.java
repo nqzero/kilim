@@ -4,6 +4,8 @@
  * specified in the file "License"
  */
 package kilim.analysis;
+import static kilim.Constants.ACC_ABSTRACT;
+import static kilim.Constants.D_FIBER_LAST_ARG;
 import static kilim.Constants.ALOAD_0;
 import static kilim.Constants.ASTORE_0;
 import static kilim.Constants.DLOAD_0;
@@ -63,6 +65,7 @@ import static org.objectweb.asm.Opcodes.ILOAD;
 import static org.objectweb.asm.Opcodes.INVOKESPECIAL;
 import static org.objectweb.asm.Opcodes.INVOKESTATIC;
 import static org.objectweb.asm.Opcodes.INVOKEVIRTUAL;
+import static org.objectweb.asm.Opcodes.INVOKEINTERFACE;
 import static org.objectweb.asm.Opcodes.IRETURN;
 import static org.objectweb.asm.Opcodes.ISTORE;
 import static org.objectweb.asm.Opcodes.LCONST_0;
@@ -80,6 +83,11 @@ import static org.objectweb.asm.Opcodes.SIPUSH;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collections;
+
+import kilim.mirrors.CachedClassMirrors.ClassMirror;
+import kilim.mirrors.CachedClassMirrors.MethodMirror;
+import kilim.mirrors.ClassMirrorNotFoundException;
+import kilim.mirrors.Detector;
 
 import org.objectweb.asm.tree.LabelNode;
 import org.objectweb.asm.tree.TableSwitchInsnNode;
@@ -170,7 +178,10 @@ public class CallWeaver {
     /** Memoized version of getNumArgs() */
     int                  numArgs = -1;
 
-    public CallWeaver(MethodWeaver mw, BasicBlock aBB) {
+    private Detector detector;
+
+    public CallWeaver(MethodWeaver mw, Detector d, BasicBlock aBB) {
+        detector = d;
         methodWeaver = mw;
         bb = aBB;
         callLabel = bb.startLabel;
@@ -345,7 +356,7 @@ public class CallWeaver {
                 mv.visitVarInsn(ALOAD, 0);
             } else {
                 loadVar(mv, TOBJECT, methodWeaver.getFiberVar());
-                mv.visitMethodInsn(INVOKEVIRTUAL, FIBER_CLASS, "getCallee", "()Ljava/lang/Object;");
+                mv.visitMethodInsn(INVOKEVIRTUAL, FIBER_CLASS, "getCallee", "()Ljava/lang/Object;", false);
                 mv.visitTypeInsn(CHECKCAST, getReceiverTypename());
             }
             spos++;
@@ -379,21 +390,56 @@ public class CallWeaver {
      * 
      * @param mv
      */
-    static String fiberArg = D_FIBER + ')';
     void genCall(MethodVisitor mv) {
         mv.visitLabel(callLabel.getLabel());
         loadVar(mv, TOBJECT, methodWeaver.getFiberVar());
-        mv.visitMethodInsn(INVOKEVIRTUAL, FIBER_CLASS, "down", "()" + D_FIBER);
+        mv.visitMethodInsn(INVOKEVIRTUAL, FIBER_CLASS, "down", "()" + D_FIBER, false);
         MethodInsnNode mi = getMethodInsn();
-        if (mi.desc.indexOf(fiberArg) == -1) {
+        if (isSAM(mi)) {
+            ClassWeaver cw = methodWeaver.getClassWeaver();
+            SAMweaver sw = cw.getSAMWeaver(mi.owner, mi.name, mi.desc, mi.itf);
+            //System.out.println("SAM call to: " + mi.owner + mi.name + mi.desc);
+            //System.out.println("invokestatic: " + cw.getName() + " " + sw.getShimMethodName());
+            mi = new MethodInsnNode(INVOKESTATIC, cw.getName(), sw.getShimMethodName(), 
+                    sw.getShimDesc(), cw.isInterface());
+        }
+        if (mi.desc.indexOf(D_FIBER_LAST_ARG) == -1) {
             // Don't add another fiberarg if it already has one. It'll already
             // have one if we have copied jsr instructions and modified the 
             // same instruction node earlier. 
-            mi.desc = mi.desc.replace(")", fiberArg);
+            mi.desc = mi.desc.replace(")", D_FIBER_LAST_ARG);
         }
         mi.accept(mv);
     }
     
+    /**
+     * Is the given method the sole abstract method (modulo woven variants).
+     */
+    boolean isSAM(MethodInsnNode mi) {
+        Detector det = this.detector;
+        int count = 0;
+        boolean match = false; 
+        try {
+            ClassMirror cm = det.classForName(mi.owner);
+            // java7 can't call java8, but java8 can call java7 - only check the callee
+            if (cm.version() < 52)
+                return false;
+            for (MethodMirror m: cm.getDeclaredMethods()) {
+                if (m.getMethodDescriptor().indexOf(D_FIBER_LAST_ARG) == -1) {
+                    if ((m.getModifiers() & ACC_ABSTRACT) > 0) {
+                        count++;
+                        if (m.getName().equals(mi.name) && m.getMethodDescriptor().equals(mi.desc)) {
+                            match = true;
+                        }
+                    }
+                }
+            }
+        } catch (ClassMirrorNotFoundException ignore) {
+            /* This error would have been caught earlier in MethodFlow, if the class can't be found */
+        }
+        return match && (count == 1);
+    }
+
     /**
      * After the pausable method call is over, we have four possibilities. The
      * called method yielded, or it returned normally. Orthogonally, we have
@@ -426,7 +472,7 @@ public class CallWeaver {
      */
     void genPostCall(MethodVisitor mv) {
         loadVar(mv, TOBJECT, methodWeaver.getFiberVar());
-        mv.visitMethodInsn(INVOKEVIRTUAL, FIBER_CLASS, "up", "()I");
+        mv.visitMethodInsn(INVOKEVIRTUAL, FIBER_CLASS, "up", "()I", false);
         LabelNode restoreLabel = new LabelNode();
         LabelNode saveLabel = new LabelNode();
         LabelNode unwindLabel = new LabelNode();
@@ -516,7 +562,7 @@ public class CallWeaver {
         mv.visitTypeInsn(NEW, stateClassName);
         mv.visitInsn(DUP); // 
         // call constructor
-        mv.visitMethodInsn(INVOKESPECIAL, stateClassName, "<init>", "()V");
+        mv.visitMethodInsn(INVOKESPECIAL, stateClassName, "<init>", "()V", false);
         // save state in register
         int stateVar = allocVar(1);
         storeVar(mv, TOBJECT, stateVar);
@@ -575,8 +621,7 @@ public class CallWeaver {
         // Fiber.setState(state);
         loadVar(mv, TOBJECT, methodWeaver.getFiberVar());
         loadVar(mv, TOBJECT, stateVar);
-        mv.visitMethodInsn(INVOKEVIRTUAL, FIBER_CLASS, "setState", "("
-                + D_STATE + ")V");
+        mv.visitMethodInsn(INVOKEVIRTUAL, FIBER_CLASS, "setState", "(" + D_STATE + ")V", false);
         releaseVar(stateVar, 1);
         // Figure out the return type of the calling method and issue the
         // appropriate xRETURN instruction
