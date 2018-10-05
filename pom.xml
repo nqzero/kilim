@@ -35,6 +35,12 @@
             <version>9.3.0.v20150612</version>
             <scope>provided</scope>
         </dependency>
+        <dependency>
+            <groupId>co.paralleluniverse</groupId>
+            <artifactId>quasar-core</artifactId>
+            <version>0.7.10</version>
+            <scope>provided</scope>
+        </dependency>
     </dependencies>
     <licenses>
         <license>
