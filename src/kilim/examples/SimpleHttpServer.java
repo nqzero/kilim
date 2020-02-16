@@ -9,8 +9,10 @@ package kilim.examples;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.PrintWriter;
+import kilim.ForkJoinScheduler;
 
 import kilim.Pausable;
+import kilim.Scheduler;
 import kilim.http.HttpRequest;
 import kilim.http.HttpResponse;
 import kilim.http.HttpServer;
@@ -20,7 +22,9 @@ import kilim.http.KeyValues;
 /**
  * A basic HTTP server that merely echoes the path and the query string supplied to it in a GET request
  * 
- * Usage: Run java kilim.examples.HttpFileServer [base directory name] 
+ * Usage: Run java kilim.examples.HttpFileServer [port] [fjpNumThreads]
+ *   default port: 7262
+ *   if fjpNumThreads isn't specified, the default scheduler is used
  * 
  * From a browser, try "http://localhost:7262/hello", "http://localhost:7262/buy?code=200&desc=Rolls%20Royce">"
  * 
@@ -36,9 +40,19 @@ import kilim.http.KeyValues;
 public class SimpleHttpServer {
 
     public static void main(String[] args) throws IOException {
-        new HttpServer(7262, SimpleHttpSession.class);
-        System.out.println("SimpleHttpServer listening on http://localhost:7262");
-        System.out.println("From a browser, try http://localhost:7262/hello\n or http://localhost:7262/buy?code=200&desc=Rolls%20Royce");
+        int port = 7262;
+        try { port = Integer.parseInt(args[0]); } catch (Throwable ex) {}
+        try {
+            int num = Integer.parseInt(args[1]);
+            Scheduler.setDefaultScheduler(new ForkJoinScheduler(num));
+        }
+        catch (Throwable ex) {}
+        System.out.println("Default Scheduler: " + Scheduler.getDefaultScheduler());
+        new HttpServer(port, SimpleHttpSession.class);
+        System.out.println("SimpleHttpServer listening on http://localhost:" + port);
+        System.out.format("From a browser, "
+                + "try http://localhost:%d/hello\n "
+                + "or http://localhost:%d/buy?code=200&desc=Rolls%%20Royce\n", port, port);
     }
     
     public static class SimpleHttpSession extends HttpSession {
