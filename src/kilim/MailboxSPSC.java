@@ -56,9 +56,13 @@ public class MailboxSPSC<T> implements PauseReason,
 		this(10);
 	}
 
+        /**
+         * construct a new instance
+         * @param size the nominal size of the backing buffer, sizes less than 1 increased to 1
+         */
 	@SuppressWarnings("unchecked")
-	public MailboxSPSC(int initialSize) {
-                msgs = new SPSCQueue(initialSize);
+	public MailboxSPSC(int size) {
+                msgs = new SPSCQueue(Math.max(size,1));
 	}
 
 	/**

@@ -153,6 +153,29 @@ public class TestMailbox extends TestCase {
         try {Thread.sleep(500);} catch (InterruptedException ignore) {}
         assertTrue(mainmb.getnb() == null);
     }
+
+    public void testZeroSize() {
+        Mailbox<Msg> mainmb = new Mailbox<Msg>(0,0);
+
+        int tid = 1, desired = 100, mod = 5;
+        Msg data = new Msg(0,0);
+        TaskMB t = new TaskMB(mainmb);
+        t.start();
+        t.mymb.putnb(new Msg(tid, desired));
+        for (int i = 0; i < desired; i++) {
+            if (i % mod == 0) {
+                // Every so often, make sure that the task is forced to block on put, by delaying draining the mbx
+                try {Thread.sleep(20);} catch (InterruptedException ignore) {}
+            }
+            Msg m = mainmb.getb(1000);
+            if (m==null)
+                break;
+            if (m.tid==tid)
+                data.num++;
+        }
+        try {Thread.sleep(500);} catch (InterruptedException ignore) {}
+        assertTrue(mainmb.getnb() == null && data.num==desired);
+    }
         
     public void testTasks() {
 

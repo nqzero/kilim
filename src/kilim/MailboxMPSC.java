@@ -56,9 +56,13 @@ public class MailboxMPSC<T> implements PauseReason, EventPublisher {
 		this(10);
 	}
 
+        /**
+         * construct a new instance
+         * @param size the nominal size of the backing buffer, sizes less than 1 increased to 1
+         */
 	@SuppressWarnings("unchecked")
-	public MailboxMPSC(int initialSize) {
-		msgs = new MPSCQueue(initialSize);
+	public MailboxMPSC(int size) {
+		msgs = new MPSCQueue(size);
 	}
 
 	/**

@@ -28,7 +28,9 @@ abstract class MPSCQueueColdFields<E> extends MPSCQueueL0Pad {
 
 	@SuppressWarnings("unchecked")
 	public MPSCQueueColdFields(int capacity) {
-		if (isPowerOf2(capacity)) {
+                if (capacity==0)
+                        this.capacity = 1;
+                else if (isPowerOf2(capacity)) {
 			this.capacity = capacity;
 		} else {
 			this.capacity = findNextPositivePowerOfTwo(capacity);

@@ -47,21 +47,31 @@ public class Mailbox<T> implements PauseReason, EventPublisher {
      * public int nPut = 0; public int nGet = 0; public int nWastedPuts = 0;
      * public int nWastedGets = 0;
      */
+    /** construct a new unbounded instance with an initial size of 10 */
     public Mailbox() {
         this(10);
     }
 
+    /**
+     * construct a new instance
+     * @param initialSize initial size, bumped up to be at least 1
+     */
     public Mailbox(int initialSize) {
         this(initialSize, Integer.MAX_VALUE);
     }
 
+    /**
+     * construct a new Mailbox instance, sizes bumped up to at least 1
+     * @param initialSize the initial size
+     * @param maxSize the nominal max size of the backing buffer
+     */
     @SuppressWarnings("unchecked")
     public Mailbox(int initialSize, int maxSize) {
         if (initialSize > maxSize)
             throw new IllegalArgumentException("initialSize: " + initialSize
                     + " cannot exceed maxSize: " + maxSize);
-        msgs = (T[]) new Object[initialSize];
-        maxMsgs = maxSize;
+        msgs = (T[]) new Object[Math.max(initialSize,1)];
+        maxMsgs = Math.max(maxSize,1);
     }
 
     /**
@@ -419,7 +429,7 @@ public class Mailbox<T> implements PauseReason, EventPublisher {
                 Mailbox.this.notify();
             }
         }
-        /** wait for either a timeout or event, returning true if the timeout occurred */        
+        /** wait for either a timeout or event, returning true if the event was received */        
         public boolean blockingWait() {
             long fin = start + tom;
             synchronized (Mailbox.this) {
