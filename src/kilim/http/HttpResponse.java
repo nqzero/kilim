@@ -186,7 +186,7 @@ public class HttpResponse extends HttpMsg {
 
         dos.write(F_DATE);
 //        byte[] date = gmtdf.format(new Date()).getBytes();
-        dos.write(GlobalServerDateHolder.INSTANCE.get());
+        dos.write(ServerDateUpdaterTask.UPDATER.get());
         dos.write(CRLF);
 
         dos.write(F_SERVER);
