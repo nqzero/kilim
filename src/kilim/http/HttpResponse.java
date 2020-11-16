@@ -10,7 +10,10 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
+import java.util.TimeZone;
 import java.util.concurrent.ConcurrentHashMap;
 
 import kilim.Constants;
@@ -125,13 +128,18 @@ public class HttpResponse extends HttpMsg {
     public ArrayList<String>                        values                           = new ArrayList<String>();
     public ExposedBaos                              bodyStream;
 
-    //moved to ServerDateHolder
-//    public static final SimpleDateFormat            gmtdf;
-//
-//    static {
-//        gmtdf = new SimpleDateFormat("EEE, dd MMM yyyy hh:mm:ss");
-//        gmtdf.setTimeZone(TimeZone.getTimeZone("GMT:00"));
-//    }
+
+    @Deprecated
+    /**
+     * date format for utc - this is not thread safe and should not be used
+     * it's left here for backward compatibility
+     * @deprecated use {@link writeHeaderSafe instead}
+     */
+    public static final SimpleDateFormat            gmtdf;
+    static {
+        gmtdf = new SimpleDateFormat("EEE, dd MMM yyyy hh:mm:ss");
+        gmtdf.setTimeZone(TimeZone.getTimeZone("GMT:00"));
+    }
 
     public HttpResponse() {
         this(ST_OK);
@@ -179,16 +187,33 @@ public class HttpResponse extends HttpMsg {
         return null;
     }
 
+    @Deprecated
+    /**
+     * this is not thread safe and should not be used
+     * it's preserved for backwards compatibility
+     * may be removed in the future
+     * @deprecated use @{link writeHeaderSafe} instead
+     */
     public void writeHeader(OutputStream os) throws IOException {
         DataOutputStream dos = new DataOutputStream(os);
+        writeHeader1(dos);
+        byte[] date = gmtdf.format(new Date()).getBytes();
+        dos.write(date);
+        writeHeader2(dos);
+    }
+    public void writeHeaderSafe(OutputStream os) throws IOException, Pausable {
+        DataOutputStream dos = new DataOutputStream(os);
+        writeHeader1(dos);
+        dos.write(ServerDateUpdaterTask.UPDATER.get());
+        writeHeader2(dos);
+    }
+    public void writeHeader1(DataOutputStream dos) throws IOException {
         dos.write(PROTOCOL);
         dos.write(status);
-
         dos.write(F_DATE);
-//        byte[] date = gmtdf.format(new Date()).getBytes();
-        dos.write(ServerDateUpdaterTask.UPDATER.get());
+    }
+    public void writeHeader2(DataOutputStream dos) throws IOException {
         dos.write(CRLF);
-
         dos.write(F_SERVER);
 
         if (bodyStream != null && getHeaderValue("Content-Length") == null) {
@@ -220,7 +245,7 @@ public class HttpResponse extends HttpMsg {
 
     public void writeTo(EndPoint endpoint) throws IOException, Pausable {
         ExposedBaos headerStream = new ExposedBaos();
-        writeHeader(headerStream);
+        writeHeaderSafe(headerStream);
         ByteBuffer bb = headerStream.toByteBuffer();
         endpoint.write(bb);
         if (bodyStream != null && bodyStream.size() > 0) {
